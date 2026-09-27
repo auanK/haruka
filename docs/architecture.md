@@ -36,3 +36,11 @@ ui  renderer
 
 > Three.js scene objects are not the source of truth. Haruka application/domain state is
 > authoritative.
+
+## Mathematical Conventions
+
+- **Matrix Representation:** 4×4 homogeneous matrices stored in row-major logical order (`readonly [number, ..., number]`).
+- **Vector Convention:** Column vectors $[x, y, z, 1]^T$ transformed via $p' = M \cdot p$.
+- **Multiplication Order:** `multiply(a, b)` strictly computes $a \cdot b$ via a direct allocating API.
+- **Angular Unit:** Radians throughout the domain.
+- **Hot-path Operations:** In-place operations (`multiplyInto`, `toMatrixInto`) accept caller-owned mutable buffers for allocation-free composition in hot paths.
