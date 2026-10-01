@@ -37,6 +37,15 @@ ui  renderer
 > Three.js scene objects are not the source of truth. Haruka application/domain state is
 > authoritative.
 
+## Application State
+
+- Application state owns the editable operations and their authoritative identity and order.
+- Operations have stable application-level IDs supplied by the caller; mathematical `Transform`
+  values remain ID-free and define their mathematical parameters.
+- The mathematical sequence is derived from the ordered operations, without merging or storing
+  a second copy of the stack. Pure edits return a new state or an explicit failure.
+- Three.js scene state is derived from application/domain data, never authoritative.
+
 ## Mathematical Conventions
 
 - **Matrix Representation:** 4×4 homogeneous matrices stored in row-major logical order (`readonly [number, ..., number]`).
