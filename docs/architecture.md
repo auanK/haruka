@@ -46,6 +46,18 @@ ui  renderer
   a second copy of the stack. Pure edits return a new state or an explicit failure.
 - Three.js scene state is derived from application/domain data, never authoritative.
 
+## Renderer Boundary
+
+- Three.js appears only in the renderer layer, which may depend on the application and domain.
+- Haruka `Matrix4` values are converted at this boundary using `Three.Matrix4.set`, whose arguments
+  accept logical row-major order despite Three.js storing `.elements` in column-major order.
+- Haruka-controlled objects reuse and overwrite their `Object3D.matrix` directly, without
+  accumulation or decomposition, preserving shear and reflection.
+- Explicit local matrix writes set `matrixAutoUpdate = false` and `matrixWorldNeedsUpdate = true`;
+  Three.js retains its normal world matrix propagation.
+- Composition remains in the domain. Renderer state is derived from application/domain state,
+  with no reverse synchronization in this layer yet.
+
 ## Mathematical Conventions
 
 - **Matrix Representation:** 4×4 homogeneous matrices stored in row-major logical order (`readonly [number, ..., number]`).
