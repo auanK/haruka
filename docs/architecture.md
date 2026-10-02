@@ -58,6 +58,16 @@ ui  renderer
 - Composition remains in the domain. Renderer state is derived from application/domain state,
   with no reverse synchronization in this layer yet.
 
+## Scene / Viewport
+
+- The renderer layer owns the Three.js scene, canvas, and WebGL resources.
+- Vue only mounts and disposes the viewport through the component lifecycle.
+- Camera state is independent of object transformation state; OrbitControls affects only the camera.
+- Haruka-controlled target objects use explicit matrices; their children may use local transforms
+  to construct the didactic geometry. Global grid and axes remain outside the target.
+- The viewport explicitly disposes its animation loop, resize observer, controls, renderer,
+  geometries, and materials, and removes its canvas on unmount.
+
 ## Mathematical Conventions
 
 - **Matrix Representation:** 4×4 homogeneous matrices stored in row-major logical order (`readonly [number, ..., number]`).
