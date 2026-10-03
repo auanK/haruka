@@ -25,14 +25,28 @@ const activeRotationCell = ref<number>()
 
 const updateNumber = (field: TransformNumberField | 'angle', event: Event): void => {
   const text = (event.target as HTMLInputElement).value
+  drafts[field] = text
   const value = parseFiniteNumber(text)
-  if (value === undefined || field === 'angle') drafts[field] = text
-  else delete drafts[field]
   if (value === undefined) return
+  if (field === 'angle') {
+    if (transform.value.type !== 'rotation') return
+    const angle = degreesToRadians(value)
+    if (transform.value.angle === angle) return
+    emit('update-transform', {
+      ...transform.value,
+      angle,
+    })
+    return
+  }
+  if ((transform.value as Record<string, unknown>)[field] === value) return
   emit('update-transform', {
     ...transform.value,
-    [field]: field === 'angle' ? degreesToRadians(value) : value,
-  })
+    [field]: value,
+  } as Transform)
+}
+
+const blurNumber = (field: TransformNumberField) => {
+  delete drafts[field]
 }
 
 const beginAngleEdit = async (index: number) => {
@@ -114,6 +128,7 @@ const selectPlane = (plane: ReflectionPlane) => {
           :aria-label="cells[index]!.label"
           :title="cells[index]!.label"
           @input="updateNumber(cells[index]!.field, $event)"
+          @blur="blurNumber(cells[index]!.field)"
         />
         <template v-else-if="cells[index]!.kind === 'rotation'">
           <span v-if="activeRotationCell === index" class="angle-editor">

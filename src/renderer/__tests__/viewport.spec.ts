@@ -199,6 +199,7 @@ describe('render-on-demand lifecycle and invalidation', () => {
     const labels = vi.spyOn(viewport.coordinateLabels, 'update')
     const orientation = vi.spyOn(gizmo, 'updateOrientation')
     const render = vi.spyOn(viewport.renderer, 'render')
+    const drawingBuffer = vi.spyOn(viewport.renderer, 'setDrawingBufferSize')
     const raf = vi.spyOn(window, 'requestAnimationFrame')
     const matrix = toMatrix({ type: 'translation', x: 5, y: 0, z: 0 })
     viewport.controls.dispatchEvent({ type: 'change' })
@@ -206,7 +207,9 @@ describe('render-on-demand lifecycle and invalidation', () => {
     width = 900
     notifyResize()
     expect(raf).toHaveBeenCalledOnce()
+    expect(drawingBuffer).not.toHaveBeenCalled()
     vi.runAllTimers()
+    expect(drawingBuffer).toHaveBeenCalledExactlyOnceWith(900, 600, expect.any(Number))
     expect(grid).toHaveBeenCalledOnce()
     expect(labels).toHaveBeenCalledOnce()
     expect(orientation).toHaveBeenCalledOnce()
@@ -214,11 +217,67 @@ describe('render-on-demand lifecycle and invalidation', () => {
     grid.mockClear()
     labels.mockClear()
     orientation.mockClear()
+    drawingBuffer.mockClear()
     viewport.sync({ matrix, vertices: transformCubeVertices(matrix) })
     vi.runAllTimers()
+    expect(drawingBuffer).not.toHaveBeenCalled()
     expect(grid).not.toHaveBeenCalled()
     expect(labels).not.toHaveBeenCalled()
     expect(orientation).not.toHaveBeenCalled()
+    viewport.dispose()
+  })
+
+  it('defers drawing buffer resize to the scheduled RAF instead of resizing synchronously on observer callback', () => {
+    const container = document.createElement('div')
+    let width = 800
+    Object.defineProperty(container, 'clientWidth', { get: () => width })
+    Object.defineProperty(container, 'clientHeight', { value: 600 })
+    const viewport = mountHarukaViewport(container)
+    vi.runAllTimers()
+
+    const drawingBuffer = vi.spyOn(viewport.renderer, 'setDrawingBufferSize')
+    const render = vi.spyOn(viewport.renderer, 'render')
+
+    width = 950
+    notifyResize()
+
+    expect(drawingBuffer).not.toHaveBeenCalledWith(950, 600, expect.any(Number))
+
+    vi.runAllTimers()
+
+    expect(drawingBuffer).toHaveBeenCalledWith(950, 600, expect.any(Number))
+    expect(render).toHaveBeenCalled()
+
+    viewport.dispose()
+  })
+
+  it('coalesces multiple rapid resize notifications so only the latest size is applied in a single RAF', () => {
+    const container = document.createElement('div')
+    let width = 800
+    Object.defineProperty(container, 'clientWidth', { get: () => width })
+    Object.defineProperty(container, 'clientHeight', { value: 600 })
+    const viewport = mountHarukaViewport(container)
+    vi.runAllTimers()
+
+    const drawingBuffer = vi.spyOn(viewport.renderer, 'setDrawingBufferSize')
+    const render = vi.spyOn(viewport.renderer, 'render')
+    const raf = vi.spyOn(window, 'requestAnimationFrame')
+
+    width = 810
+    notifyResize()
+    width = 820
+    notifyResize()
+    width = 830
+    notifyResize()
+
+    expect(raf).toHaveBeenCalledOnce()
+    expect(drawingBuffer).not.toHaveBeenCalled()
+
+    vi.runAllTimers()
+
+    expect(drawingBuffer).toHaveBeenCalledExactlyOnceWith(830, 600, expect.any(Number))
+    expect(render.mock.calls.filter(([scene]) => scene === viewport.scene)).toHaveLength(1)
+
     viewport.dispose()
   })
 

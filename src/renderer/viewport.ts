@@ -125,6 +125,7 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
   let lastCssHeight = 0
   let lastPixelRatio = 0
   let cameraDirty = true
+  let resizeDirty = true
 
   container.appendChild(renderer.domElement)
 
@@ -175,6 +176,24 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
     const width = container.clientWidth
     const height = container.clientHeight
     if (width <= 0 || height <= 0) return
+
+    if (resizeDirty) {
+      resizeDirty = false
+      const pixelRatio = resolveRenderPixelRatio({
+        cssWidth: width,
+        cssHeight: height,
+        devicePixelRatio: window.devicePixelRatio || 1,
+        maxDpr: DEFAULT_MAX_WEBGL_DPR,
+      })
+      if (width !== lastCssWidth || height !== lastCssHeight || pixelRatio !== lastPixelRatio) {
+        lastCssWidth = width
+        lastCssHeight = height
+        lastPixelRatio = pixelRatio
+        resizeViewport(renderer, camera, width, height, pixelRatio)
+        cameraDirty = true
+      }
+    }
+
     const updateCamera = cameraDirty
     cameraDirty = false
     if (updateCamera) validateCamera()
@@ -212,7 +231,7 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
   }
   controls.addEventListener('change', onControlsChange)
 
-  const resize = () => {
+  const onResize = () => {
     const width = container.clientWidth
     const height = container.clientHeight
     if (width <= 0 || height <= 0) return
@@ -225,16 +244,12 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
     })
 
     if (width === lastCssWidth && height === lastCssHeight && pixelRatio === lastPixelRatio) return
-    lastCssWidth = width
-    lastCssHeight = height
-    lastPixelRatio = pixelRatio
-    resizeViewport(renderer, camera, width, height, pixelRatio)
-    onControlsChange()
+    resizeDirty = true
+    scheduler.requestRender()
   }
 
-  const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null
+  const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onResize) : null
   resizeObserver?.observe(container)
-  resize()
 
   const locateCube = () => {
     const { center, radius } = computeVerticesBounds(latestVertices)

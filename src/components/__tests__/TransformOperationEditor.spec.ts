@@ -291,4 +291,75 @@ describe('TransformOperationEditor', () => {
     }
     expect(wrapper.find('input, select').exists()).toBe(false)
   })
+
+  it('preserves exact lexical drafts during continuous numeric typing and skips redundant semantic emits', async () => {
+    render({ type: 'translation', x: 0, y: 0, z: 0 })
+    const input = wrapper.get('td[data-index="3"] input')
+    await input.trigger('focus')
+
+    await input.setValue('0.0')
+    expect((input.element as HTMLInputElement).value).toBe('0.0')
+    expect(wrapper.emitted('update-transform')).toBeUndefined()
+
+    await input.setValue('0.00')
+    expect((input.element as HTMLInputElement).value).toBe('0.00')
+    expect(wrapper.emitted('update-transform')).toBeUndefined()
+
+    await input.setValue('0.01')
+    expect((input.element as HTMLInputElement).value).toBe('0.01')
+    expect(wrapper.emitted('update-transform')).toEqual([
+      [{ type: 'translation', x: 0.01, y: 0, z: 0 }],
+    ])
+  })
+
+  it('preserves active draft across parent prop updates and canonicalizes on blur', async () => {
+    render({ type: 'translation', x: 0, y: 0, z: 0 })
+    const xInput = wrapper.get('td[data-index="3"] input')
+    await xInput.setValue('0.00')
+
+    await wrapper.setProps({
+      operation: operationWith({ type: 'translation', x: 0, y: 5, z: 0 }),
+    })
+
+    expect((xInput.element as HTMLInputElement).value).toBe('0.00')
+
+    await xInput.trigger('blur')
+    expect((xInput.element as HTMLInputElement).value).toBe('0')
+  })
+
+  it('preserves angle draft during continuous rotation editing, skips redundant emits, and restores canonical symbol on blur', async () => {
+    render({ type: 'rotation', axis: 'z', angle: 0 })
+    await wrapper.get('td[data-index="0"] button').trigger('click')
+    const angleInput = wrapper.get('input[name="angle"]')
+
+    await angleInput.setValue('0.0')
+    expect((angleInput.element as HTMLInputElement).value).toBe('0.0')
+    expect(wrapper.emitted('update-transform')).toBeUndefined()
+
+    await angleInput.setValue('0.00')
+    expect((angleInput.element as HTMLInputElement).value).toBe('0.00')
+    expect(wrapper.emitted('update-transform')).toBeUndefined()
+
+    await angleInput.setValue('0.01')
+    expect((angleInput.element as HTMLInputElement).value).toBe('0.01')
+    const expectedAngle = 0.01 * (Math.PI / 180)
+    expect(wrapper.emitted('update-transform')).toEqual([
+      [{ type: 'rotation', axis: 'z', angle: expectedAngle }],
+    ])
+
+    await angleInput.setValue('45.00')
+    expect((angleInput.element as HTMLInputElement).value).toBe('45.00')
+    const angle45 = 45 * (Math.PI / 180)
+    expect(wrapper.emitted('update-transform')?.slice(-1)[0]).toEqual([
+      { type: 'rotation', axis: 'z', angle: angle45 },
+    ])
+    await wrapper.setProps({
+      operation: operationWith({ type: 'rotation', axis: 'z', angle: angle45 }),
+    })
+    expect((angleInput.element as HTMLInputElement).value).toBe('45.00')
+
+    await angleInput.trigger('blur')
+    expect(wrapper.find('input').exists()).toBe(false)
+    expect(wrapper.get('td[data-index="0"] button').text()).toBe('cos(45°)')
+  })
 })
