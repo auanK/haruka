@@ -16,7 +16,7 @@ const indices = [0, 1, 2, 3] as const
 
 <template>
   <table>
-    <caption>
+    <caption v-if="caption">
       {{
         caption
       }}
@@ -30,7 +30,9 @@ const indices = [0, 1, 2, 3] as const
           :data-column="column"
           :data-index="row * 4 + column"
         >
-          {{ formatMatrixValue(matrix[row * 4 + column]!) }}
+          <slot name="cell" :index="row * 4 + column" :value="matrix[row * 4 + column]!">
+            {{ formatMatrixValue(matrix[row * 4 + column]!) }}
+          </slot>
         </td>
       </tr>
     </tbody>

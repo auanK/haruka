@@ -53,40 +53,45 @@ const addOperation = () =>
       :key="operation.id"
       :data-operation-id="operation.id"
     >
-      <header>
-        <h2>{{ transformTypes[operation.transform.type] }}</h2>
-        <button
-          type="button"
-          aria-label="Move up"
-          title="Move up"
-          :disabled="index === 0"
-          @click="emit('edit', moveTransformOperation(state, operation.id, index - 1))"
-        >
-          ↑
-        </button>
-        <button
-          type="button"
-          aria-label="Move down"
-          title="Move down"
-          :disabled="index === state.operations.length - 1"
-          @click="emit('edit', moveTransformOperation(state, operation.id, index + 1))"
-        >
-          ↓
-        </button>
-        <button
-          class="remove"
-          type="button"
-          aria-label="Remove"
-          title="Remove"
-          @click="emit('edit', removeTransformOperation(state, operation.id))"
-        >
-          ×
-        </button>
-      </header>
       <TransformOperationEditor
         :operation="operation"
         @update-transform="emit('edit', updateTransformOperation(state, operation.id, $event))"
-      />
+      >
+        <template #title>
+          <h2>{{ transformTypes[operation.transform.type] }}</h2>
+        </template>
+        <template #controls>
+          <div class="operation-controls">
+            <button
+              type="button"
+              aria-label="Move up"
+              title="Move up"
+              :disabled="index === 0"
+              @click="emit('edit', moveTransformOperation(state, operation.id, index - 1))"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              aria-label="Move down"
+              title="Move down"
+              :disabled="index === state.operations.length - 1"
+              @click="emit('edit', moveTransformOperation(state, operation.id, index + 1))"
+            >
+              ↓
+            </button>
+            <button
+              class="remove"
+              type="button"
+              aria-label="Remove"
+              title="Remove"
+              @click="emit('edit', removeTransformOperation(state, operation.id))"
+            >
+              ×
+            </button>
+          </div>
+        </template>
+      </TransformOperationEditor>
     </article>
   </aside>
 </template>
@@ -94,7 +99,8 @@ const addOperation = () =>
 <style scoped>
 .stack-panel {
   box-sizing: border-box;
-  flex: 0 0 310px;
+  /* min: ~7 monospace digits per matrix cell; max: spare width belongs to the viewport. */
+  flex: 0 0 clamp(18rem, 18vw, 22rem);
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
@@ -108,10 +114,10 @@ h1 {
   font-size: 1rem;
 }
 h2 {
-  flex: 1;
   min-width: 0;
   margin: 0;
   font-size: 0.85rem;
+  font-weight: 600;
 }
 p {
   margin: 0 0 0.75rem;
@@ -119,7 +125,7 @@ p {
   font-size: 0.8rem;
 }
 form,
-header {
+.operation-controls {
   display: flex;
   align-items: center;
   gap: 0.3rem;
@@ -142,10 +148,10 @@ article {
   border-radius: 3px;
   background: var(--color-surface);
 }
-header {
-  margin-bottom: 0.4rem;
+.operation-controls {
+  margin-left: auto;
 }
-header button {
+.operation-controls button {
   width: 24px;
   min-height: 24px;
   padding: 0;

@@ -1,10 +1,27 @@
 // @vitest-environment jsdom
 import { mount } from '@vue/test-utils'
+import { h } from 'vue'
 import { describe, expect, it } from 'vitest'
 import { identity, type Matrix4 } from '../../domain'
 import Matrix4Grid from '../Matrix4Grid.vue'
 
 describe('Matrix4Grid', () => {
+  it('allows generic cell content and an omitted caption without changing matrix ownership', () => {
+    const matrix = Object.freeze(identity())
+    const wrapper = mount(Matrix4Grid, {
+      props: { matrix, caption: '' },
+      slots: {
+        cell: ({ index, value }: { index: number; value: number }) =>
+          h('span', `${index}: ${value}`),
+      },
+    })
+    expect(wrapper.find('caption').exists()).toBe(false)
+    expect(wrapper.get('td[data-index="3"]').text()).toBe('3: 0')
+    expect(wrapper.get('td[data-index="15"]').text()).toBe('15: 1')
+    expect(matrix).toEqual(identity())
+    expect(wrapper.emitted()).toEqual({})
+  })
+
   it('accepts a caption while preserving addressable read-only cells', async () => {
     const wrapper = mount(Matrix4Grid, { props: { matrix: identity(), caption: 'Final Matrix' } })
     expect(wrapper.get('caption').text()).toBe('Final Matrix')

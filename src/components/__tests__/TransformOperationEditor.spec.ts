@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { mount, type VueWrapper } from '@vue/test-utils'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { Transform } from '../../domain'
 import type { TransformOperation } from '../../app/transform-stack-state'
 import TransformOperationEditor from '../TransformOperationEditor.vue'
@@ -8,216 +8,287 @@ import TransformOperationEditor from '../TransformOperationEditor.vue'
 const operationWith = (transform: Transform): TransformOperation =>
   Object.freeze({ id: 'op-1', transform: Object.freeze(transform) })
 
-describe('TransformOperationEditor', () => {
-  it.each(['translation', 'scale'] as const)(
-    'edits all %s coordinates immediately by replacing a frozen transform',
-    async (type) => {
-      const operation = operationWith({ type, x: 1, y: 2, z: 3 })
-      const wrapper = mount(TransformOperationEditor, { props: { operation } })
-      expect(wrapper.findAll('label').map((label) => label.text())).toEqual(['X', 'Y', 'Z'])
-      expect(wrapper.findAll('input')).toHaveLength(3)
-      let transform = operation.transform
+let wrapper: VueWrapper
+const render = (transform: Transform) => {
+  const operation = operationWith(transform)
+  wrapper = mount(TransformOperationEditor, { props: { operation }, attachTo: document.body })
+  return operation
+}
+afterEach(() => wrapper?.unmount())
 
-      for (const [field, value] of [
-        ['x', '0'],
-        ['y', '-2.5'],
-        ['z', '4'],
-      ] as const) {
-        const input = wrapper.get(`input[name="${field}"]`)
+describe('TransformOperationEditor', () => {
+  it.each([
+    {
+      transform: { type: 'translation', x: 2, y: 3, z: 4 },
+      fields: [
+        [3, 'x'],
+        [7, 'y'],
+        [11, 'z'],
+      ],
+      notation: 'T(x, y, z)',
+    },
+    {
+      transform: { type: 'scale', x: 1, y: 2, z: 3 },
+      fields: [
+        [0, 'x'],
+        [5, 'y'],
+        [10, 'z'],
+      ],
+      notation: 'S(sx, sy, sz)',
+    },
+    {
+      transform: { type: 'shear', kxy: 0, kxz: 0, kyx: 0, kyz: 0, kzx: 0, kzy: 0 },
+      fields: [
+        [1, 'kxy'],
+        [2, 'kxz'],
+        [4, 'kyx'],
+        [6, 'kyz'],
+        [8, 'kzx'],
+        [9, 'kzy'],
+      ],
+      notation: 'H(kᵢⱼ)',
+    },
+  ] as const)(
+    'edits only the semantic $transform.type cells of a frozen transform',
+    async ({ transform, fields, notation }) => {
+      const operation = render(transform)
+      expect(wrapper.get('.notation').text()).toContain(notation)
+      expect(wrapper.find('caption').exists()).toBe(false)
+      expect(wrapper.findAll('td')).toHaveLength(16)
+      expect(
+        wrapper
+          .findAll('td')
+          .filter((cell) => cell.find('input').exists())
+          .map((cell) => Number(cell.attributes('data-index'))),
+      ).toEqual(fields.map(([index]) => index))
+      let current: Transform = transform
+      for (const [offset, [index, field]] of fields.entries()) {
+        const input = wrapper.get(`td[data-index="${index}"] input`)
+        expect(input.attributes('name')).toBe(field)
         expect(input.attributes('type')).toBe('number')
         expect(input.attributes('step')).toBe('any')
-        await input.setValue(value)
-        const replacement = { ...transform, [field]: Number(value) }
+        expect(input.attributes('aria-label')).toContain('matrix cell')
+        expect(input.attributes('title')).toBe(input.attributes('aria-label'))
+        await input.setValue(String(offset - 2.5))
+        const replacement: Transform = { ...current, [field]: offset - 2.5 }
         const emitted = wrapper.emitted('update-transform')?.slice(-1)[0]?.[0]
         expect(emitted).toEqual(replacement)
-        expect(emitted).not.toBe(transform)
-        transform = replacement
-        await wrapper.setProps({ operation: operationWith(transform) })
+        expect(emitted).not.toBe(current)
+        current = replacement
+        await wrapper.setProps({ operation: operationWith(current) })
       }
-
-      expect(wrapper.emitted('update-transform')).toHaveLength(3)
-      expect(operation.transform).toEqual({ type, x: 1, y: 2, z: 3 })
-      expect(wrapper.find('button').exists()).toBe(false)
+      expect(wrapper.emitted('update-transform')).toHaveLength(fields.length)
+      expect(operation.transform).toEqual(transform)
+      for (const cell of wrapper.findAll('td')) {
+        if (fields.some(([index]) => index === Number(cell.attributes('data-index')))) continue
+        expect(cell.find('input, button, [tabindex], [contenteditable]').exists()).toBe(false)
+      }
+      expect(wrapper.findAll('input').every((input) => input.element.closest('td'))).toBe(true)
+      expect(wrapper.find('select, label').exists()).toBe(false)
     },
   )
 
-  it('keeps the last mathematical state and an empty native draft for invalid numbers', async () => {
-    const operation = operationWith({ type: 'translation', x: 2.5, y: 2, z: 3 })
-    const wrapper = mount(TransformOperationEditor, { props: { operation } })
-    const input = wrapper.get('input[name="x"]')
-
-    for (const value of ['', 'abc', 'NaN', 'Infinity', '-Infinity', '-', '.', '1.']) {
-      await input.setValue(value)
-      expect(wrapper.emitted('update-transform')).toBeUndefined()
-      expect((input.element as HTMLInputElement).value).toBe('')
-    }
-
-    expect(operation.transform).toEqual({ type: 'translation', x: 2.5, y: 2, z: 3 })
-    await input.setValue('8.25')
+  it.each(['0', '-2.5', '0.25'])('allows scale.y = %s through diagonal cell 5', async (value) => {
+    render({ type: 'scale', x: 1, y: 2, z: 3 })
+    await wrapper.get('td[data-index="5"] input').setValue(value)
     expect(wrapper.emitted('update-transform')).toEqual([
-      [{ type: 'translation', x: 8.25, y: 2, z: 3 }],
+      [{ type: 'scale', x: 1, y: Number(value), z: 3 }],
     ])
   })
 
-  it('preserves an incomplete field draft while another coordinate is updated', async () => {
-    const operation = operationWith({ type: 'translation', x: 2.5, y: 2, z: 3 })
-    const wrapper = mount(TransformOperationEditor, { props: { operation } })
-    const xInput = wrapper.get('input[name="x"]')
-    await xInput.setValue('')
-    await wrapper.get('input[name="y"]').setValue('5')
+  it.each([
+    { transform: { type: 'translation', x: 2.5, y: 2, z: 3 }, index: 3, field: 'x' },
+    { transform: { type: 'rotation', axis: 'z', angle: Math.PI / 6 }, index: 0, field: 'angle' },
+    {
+      transform: { type: 'shear', kxy: 2.5, kxz: 0, kyx: 0, kyz: 0, kzx: 0, kzy: 0 },
+      index: 1,
+      field: 'kxy',
+    },
+  ] as const)(
+    'keeps $transform.type drafts out of authoritative mathematical state',
+    async ({ transform, index, field }) => {
+      const operation = render(transform)
+      if (transform.type === 'rotation')
+        await wrapper.get(`td[data-index="${index}"] button`).trigger('click')
+      const input = wrapper.get(`td[data-index="${index}"] input`)
+      for (const value of ['', 'abc', 'NaN', 'Infinity', '-Infinity', '-', '.', '1.', '1e309']) {
+        await input.setValue(value)
+        expect(wrapper.emitted('update-transform')).toBeUndefined()
+        expect([value, '']).toContain((input.element as HTMLInputElement).value)
+        expect(operation.transform).toEqual(transform)
+      }
+      await input.setValue('8.25')
+      const value = field === 'angle' ? 8.25 * (Math.PI / 180) : 8.25
+      expect(wrapper.emitted('update-transform')).toEqual([[{ ...transform, [field]: value }]])
+    },
+  )
+
+  it('preserves an incomplete coordinate draft while another cell updates', async () => {
+    render({ type: 'translation', x: 2.5, y: 2, z: 3 })
+    const x = wrapper.get('td[data-index="3"] input')
+    await x.setValue('')
+    await wrapper.get('td[data-index="7"] input').setValue('5')
     expect(wrapper.emitted('update-transform')).toEqual([
       [{ type: 'translation', x: 2.5, y: 5, z: 3 }],
     ])
-
     await wrapper.setProps({
       operation: operationWith({ type: 'translation', x: 2.5, y: 5, z: 3 }),
     })
-    expect((xInput.element as HTMLInputElement).value).toBe('')
-    expect(wrapper.get('table').findAll('td')[3]?.text()).toBe('2.5')
-    await xInput.setValue('7')
+    expect((x.element as HTMLInputElement).value).toBe('')
+    await x.setValue('7')
     expect(wrapper.emitted('update-transform')?.slice(-1)[0]).toEqual([
       { type: 'translation', x: 7, y: 5, z: 3 },
     ])
   })
 
-  it('offers all rotation axes and converts the visible degrees to radians', async () => {
-    const operation = operationWith({ type: 'rotation', axis: 'z', angle: Math.PI / 2 })
-    const wrapper = mount(TransformOperationEditor, { props: { operation } })
-    const axisInput = wrapper.get('select[name="axis"]')
-    expect(axisInput.findAll('option').map((option) => option.attributes('value'))).toEqual([
-      'x',
-      'y',
-      'z',
+  it('uses exclusive reflection diagonal selectors and ignores the active choice', async () => {
+    const operation = render({ type: 'reflection', plane: 'yz' })
+    expect(wrapper.get('.notation').text()).toBe('RefYZ')
+    expect(wrapper.find('input, select').exists()).toBe(false)
+    expect(wrapper.findAll('td button').map((button) => button.attributes('aria-label'))).toEqual([
+      'Reflect across YZ',
+      'Reflect across XZ',
+      'Reflect across XY',
     ])
-    expect(wrapper.findAll('label').map((label) => label.text())).toEqual([
-      expect.stringContaining('Axis'),
-      'Angle (°)',
-    ])
-    const angleInput = wrapper.get('input[name="angle"]')
-    expect((angleInput.element as HTMLInputElement).value).toBe('90')
-    expect(angleInput.attributes('type')).toBe('number')
-    expect(angleInput.attributes('step')).toBe('any')
-
-    for (const axis of ['x', 'y', 'z']) {
-      await axisInput.setValue(axis)
-      expect(wrapper.emitted('update-transform')?.slice(-1)[0]).toEqual([
-        { type: 'rotation', axis, angle: Math.PI / 2 },
-      ])
-    }
-    for (const [degrees, radians] of [
-      ['180', Math.PI],
-      ['90', Math.PI / 2],
-      ['-90', -Math.PI / 2],
+    await wrapper.get('td[data-index="0"] button').trigger('click')
+    expect(wrapper.emitted('update-transform')).toBeUndefined()
+    for (const [index, plane, diagonal] of [
+      [5, 'xz', ['1', '-1', '1']],
+      [10, 'xy', ['1', '1', '-1']],
+      [0, 'yz', ['-1', '1', '1']],
     ] as const) {
-      await angleInput.setValue(degrees)
-      expect(wrapper.emitted('update-transform')?.slice(-1)[0]).toEqual([
-        { type: 'rotation', axis: 'z', angle: radians },
-      ])
-    }
-    expect(operation.transform).toEqual({ type: 'rotation', axis: 'z', angle: Math.PI / 2 })
-  })
-
-  it('offers reflection planes and emits a replacement without mutating the operation', async () => {
-    const operation = operationWith({ type: 'reflection', plane: 'yz' })
-    const wrapper = mount(TransformOperationEditor, { props: { operation } })
-    const planeInput = wrapper.get('select[name="plane"]')
-    expect(planeInput.findAll('option').map((option) => option.text())).toEqual(['XY', 'XZ', 'YZ'])
-    expect(wrapper.get('label').text()).toContain('Plane')
-
-    for (const plane of ['xy', 'xz', 'yz']) {
-      await planeInput.setValue(plane)
+      await wrapper.get(`td[data-index="${index}"] button`).trigger('click')
       expect(wrapper.emitted('update-transform')?.slice(-1)[0]).toEqual([
         { type: 'reflection', plane },
       ])
+      await wrapper.setProps({ operation: operationWith({ type: 'reflection', plane }) })
+      expect([0, 5, 10].map((i) => wrapper.get(`td[data-index="${i}"]`).text())).toEqual(diagonal)
+      expect(wrapper.get(`td[data-index="${index}"] button`).attributes('aria-pressed')).toBe(
+        'true',
+      )
+      expect(wrapper.findAll('td button[aria-pressed="true"]')).toHaveLength(1)
+      expect(wrapper.get('.notation').text()).toBe(`Ref${plane.toUpperCase()}`)
     }
-    expect(wrapper.find('input').exists()).toBe(false)
     expect(operation.transform).toEqual({ type: 'reflection', plane: 'yz' })
   })
 
-  it('exposes and edits all six shear coefficients with their mathematical labels', async () => {
-    const operation = operationWith({
-      type: 'shear',
-      kxy: 0,
-      kxz: 0,
-      kyx: 0,
-      kyz: 0,
-      kzx: 0,
-      kzy: 0,
-    })
-    const wrapper = mount(TransformOperationEditor, { props: { operation } })
-    const coefficients = ['kxy', 'kxz', 'kyx', 'kyz', 'kzx', 'kzy'] as const
-    expect(wrapper.findAll('input')).toHaveLength(6)
-    expect(wrapper.findAll('label').map((label) => label.text())).toEqual([
-      'X ← Y (kxy)',
-      'X ← Z (kxz)',
-      'Y ← X (kyx)',
-      'Y ← Z (kyz)',
-      'Z ← X (kzx)',
-      'Z ← Y (kzy)',
-    ])
+  it.each([
+    ['x', [5, 6, 9, 10], ['cos(90°)', '-sen(90°)', 'sen(90°)', 'cos(90°)']],
+    ['y', [0, 2, 8, 10], ['cos(90°)', 'sen(90°)', '-sen(90°)', 'cos(90°)']],
+    ['z', [0, 1, 4, 5], ['cos(90°)', '-sen(90°)', 'sen(90°)', 'cos(90°)']],
+  ] as const)(
+    'renders %s rotation cells symbolically with no permanent inputs',
+    (axis, indices, text) => {
+      render({ type: 'rotation', axis, angle: Math.PI / 2 })
+      expect(
+        wrapper
+          .findAll('td button')
+          .map((button) => Number(button.element.closest('td')!.dataset.index)),
+      ).toEqual(indices)
+      expect(indices.map((index) => wrapper.get(`td[data-index="${index}"]`).text())).toEqual(text)
+      expect(wrapper.find('input, select, caption').exists()).toBe(false)
+      expect(wrapper.get('.notation').text()).toContain(`R${axis}(θ)`)
+      expect(wrapper.get('.notation sub').text()).toBe(axis)
+      for (const cell of wrapper.findAll('td')) {
+        if (indices.some((index) => index === Number(cell.attributes('data-index')))) continue
+        expect(cell.find('input, button, [tabindex], [contenteditable]').exists()).toBe(false)
+      }
+    },
+  )
 
-    for (const [index, coefficient] of coefficients.entries()) {
-      const input = wrapper.get(`input[name="${coefficient}"]`)
-      expect(input.attributes('type')).toBe('number')
-      expect(input.attributes('step')).toBe('any')
-      await input.setValue(String(index - 2))
-      expect(wrapper.emitted('update-transform')?.slice(-1)[0]).toEqual([
-        { ...operation.transform, [coefficient]: index - 2 },
+  it.each([0, 1, 4, 5])(
+    'edits the same angle through symbolic cell %s and links all expressions',
+    async (index) => {
+      const operation = render({ type: 'rotation', axis: 'z', angle: Math.PI / 6 })
+      await wrapper.get(`td[data-index="${index}"] button`).trigger('click')
+      const input = wrapper.get('input[name="angle"]')
+      expect(wrapper.findAll('input')).toHaveLength(1)
+      expect((input.element as HTMLInputElement).value).toBe('30')
+      expect(document.activeElement).toBe(input.element)
+      expect(input.attributes('aria-label')).toContain('Rotation angle through')
+      await input.setValue('45')
+      expect(wrapper.emitted('update-transform')).toEqual([
+        [{ type: 'rotation', axis: 'z', angle: Math.PI / 4 }],
       ])
+      await wrapper.setProps({
+        operation: operationWith({ type: 'rotation', axis: 'z', angle: Math.PI / 4 }),
+      })
+      expect((input.element as HTMLInputElement).value).toBe('45')
+      await input.trigger('blur')
+      expect(wrapper.find('input').exists()).toBe(false)
+      expect([0, 1, 4, 5].map((i) => wrapper.get(`td[data-index="${i}"]`).text())).toEqual([
+        'cos(45°)',
+        '-sen(45°)',
+        'sen(45°)',
+        'cos(45°)',
+      ])
+      expect(operation.transform).toEqual({ type: 'rotation', axis: 'z', angle: Math.PI / 6 })
+    },
+  )
+
+  it('opens with Enter and discards an invalid draft with Escape, Enter or blur without reverting a valid edit', async () => {
+    render({ type: 'rotation', axis: 'z', angle: Math.PI / 6 })
+    await wrapper.get('td[data-index="0"] button').trigger('keydown', { key: 'Enter' })
+    await wrapper.get('input[name="angle"]').setValue('45')
+    await wrapper.setProps({
+      operation: operationWith({ type: 'rotation', axis: 'z', angle: Math.PI / 4 }),
+    })
+    for (const action of ['Escape', 'Enter', 'blur']) {
+      if (!wrapper.find('input').exists())
+        await wrapper.get('td[data-index="0"] button').trigger('click')
+      const input = wrapper.get('input[name="angle"]')
+      await input.setValue('')
+      if (action === 'blur') await input.trigger('blur')
+      else await input.trigger('keydown', { key: action })
+      expect(wrapper.find('input').exists()).toBe(false)
+      expect(wrapper.get('td[data-index="0"] button').text()).toBe('cos(45°)')
+      expect(wrapper.emitted('update-transform')).toHaveLength(1)
+      expect(document.activeElement).toBe(
+        action === 'blur' ? document.body : wrapper.get('td[data-index="0"] button').element,
+      )
     }
-    expect(Object.values(operation.transform).slice(1)).toEqual([0, 0, 0, 0, 0, 0])
   })
 
-  it('derives a read-only 4×4 matrix with presentation-only rounding and clean trigonometric zeros', async () => {
-    const rotation = operationWith({ type: 'rotation', axis: 'z', angle: Math.PI / 2 })
-    const wrapper = mount(TransformOperationEditor, { props: { operation: rotation } })
-    const table = wrapper.get('table')
-    expect(table.get('caption').text()).toBe('Matrix')
-    expect(table.findAll('tbody tr')).toHaveLength(4)
-    for (const row of table.findAll('tbody tr')) expect(row.findAll('td')).toHaveLength(4)
-    expect(table.findAll('td').map((cell) => cell.text())).toEqual([
-      '0',
-      '-1',
-      '0',
-      '0',
-      '1',
-      '0',
-      '0',
-      '0',
-      '0',
-      '0',
-      '1',
-      '0',
-      '0',
-      '0',
-      '0',
-      '1',
-    ])
-    expect(table.find('input').exists()).toBe(false)
-    expect(table.find('[contenteditable]').exists()).toBe(false)
-    expect(rotation.transform).toEqual({ type: 'rotation', axis: 'z', angle: Math.PI / 2 })
-
-    const translation = operationWith({ type: 'translation', x: 1.234567, y: -2, z: 3 })
-    await wrapper.setProps({ operation: translation })
-    expect(table.findAll('td').map((cell) => cell.text())).toEqual([
-      '1',
-      '0',
-      '0',
-      '1.2346',
-      '0',
-      '1',
-      '0',
-      '-2',
-      '0',
-      '0',
-      '1',
-      '3',
-      '0',
-      '0',
-      '0',
-      '1',
-    ])
-    expect(translation.transform).toEqual({ type: 'translation', x: 1.234567, y: -2, z: 3 })
+  it('keeps only one angle input when another symbolic cell is activated', async () => {
+    render({ type: 'rotation', axis: 'z', angle: Math.PI / 6 })
+    await wrapper.get('td[data-index="0"] button').trigger('click')
+    await wrapper.get('input[name="angle"]').setValue('')
+    await wrapper.get('td[data-index="4"] button').trigger('click')
+    expect(wrapper.findAll('input')).toHaveLength(1)
+    expect(wrapper.find('td[data-index="0"] input').exists()).toBe(false)
+    expect((wrapper.get('td[data-index="4"] input').element as HTMLInputElement).value).toBe('30')
     expect(wrapper.emitted('update-transform')).toBeUndefined()
+  })
+
+  it('offers compact axis buttons while preserving the exact angle and switching symbolic cells', async () => {
+    const angle = Math.PI / 6 + 1e-12
+    render({ type: 'rotation', axis: 'z', angle })
+    expect(wrapper.findAll('.axis-selector button').map((button) => button.text())).toEqual([
+      'X',
+      'Y',
+      'Z',
+    ])
+    for (const [axis, indices] of [
+      ['x', [5, 6, 9, 10]],
+      ['y', [0, 2, 8, 10]],
+      ['z', [0, 1, 4, 5]],
+    ] as const) {
+      await wrapper.get(`button[aria-label="Rotation axis ${axis.toUpperCase()}"]`).trigger('click')
+      expect(wrapper.emitted('update-transform')?.slice(-1)[0]).toEqual([
+        { type: 'rotation', axis, angle },
+      ])
+      await wrapper.setProps({ operation: operationWith({ type: 'rotation', axis, angle }) })
+      expect(
+        wrapper
+          .findAll('td button')
+          .map((button) => Number(button.element.closest('td')!.dataset.index)),
+      ).toEqual(indices)
+      expect(
+        wrapper
+          .get(`button[aria-label="Rotation axis ${axis.toUpperCase()}"]`)
+          .attributes('aria-pressed'),
+      ).toBe('true')
+    }
+    expect(wrapper.find('input, select').exists()).toBe(false)
   })
 })

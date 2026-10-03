@@ -69,13 +69,13 @@ ui  renderer
 
 - The read-only matrix component presents four addressable rows and columns in logical row-major
   order: `index = row * 4 + column`. Display formatting never changes the underlying matrix.
-- Each matrix is currently derived from its semantic `Transform`; operations do not store a second
-  authoritative matrix.
-- Future cell editing needs a separate decision about representation and ownership with a single
-  source of truth. An arbitrary edited matrix may no longer represent the original semantic
-  transform, or even an affine transform.
-- Do not infer semantic parameters from edited cells through heuristics or Three.js decomposition.
-  Editing APIs, restrictions, and additional transform representations belong to that future phase.
+- Operation cells are derived by a pure presentation function from each semantic `Transform`.
+  Only family-specific cells edit semantic parameters; reflection diagonals select the plane and
+  rotation expressions share one angle editor (degrees in UI, radians in the domain).
+- Temporary drafts belong to the editor. Valid edits replace the semantic transform through
+  application state; invalid drafts preserve the last valid state. No authoritative matrix is stored
+  alongside an operation, and no semantic parameters are inferred from a matrix.
+- Operation rotation matrices are symbolic; Final Matrix remains numeric and read-only.
 
 ## Renderer Boundary
 

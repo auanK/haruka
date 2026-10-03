@@ -58,6 +58,9 @@ const expectResultsInSync = () => {
   expect(target().matrix).toEqual(new Matrix4().set(...matrix))
   const update = vi.mocked(mountHarukaViewport).mock.results[0]!.value.updateVertexLabels
   expect(vi.mocked(update).mock.calls.slice(-1)[0]?.[0]).toBe(vertices)
+  const sync = vi.mocked(mountHarukaViewport).mock.results[0]!.value.sync
+  expect(vi.mocked(sync).mock.calls.slice(-1)[0]?.[0].matrix).toBe(matrix)
+  expect(vi.mocked(sync).mock.calls.slice(-1)[0]?.[0].vertices).toBe(vertices)
   return { matrix, vertices }
 }
 
@@ -82,7 +85,7 @@ describe('transformation stack integration', () => {
   it('updates Final Matrix, current vertex coordinates and the renderer together when Translation X becomes 2', async () => {
     wrapper = mount(App)
     await add('translation')
-    await wrapper.get('article input[name="x"]').setValue('2')
+    await wrapper.get('article td[data-index="3"] input').setValue('2')
 
     const { matrix, vertices } = expectResultsInSync()
     expect(matrix).toEqual(toMatrix({ type: 'translation', x: 2, y: 0, z: 0 }))
@@ -107,6 +110,7 @@ describe('transformation stack integration', () => {
     ]) {
       await add(type!)
       const last = wrapper.findAll('article').slice(-1)[0]!
+      if (type === 'rotation') await last.get('td[data-index="0"] button').trigger('click')
       await last.get(`input[name="${field}"]`).setValue(value!)
       const { matrix } = expectResultsInSync()
       const operations = wrapper.getComponent(TransformStackPanel).props('state').operations
@@ -119,6 +123,9 @@ describe('transformation stack integration', () => {
     await add('translation')
     await wrapper.get('article input[name="x"]').setValue('2')
     await add('rotation')
+    await wrapper
+      .get('article[data-operation-id="op-2"] td[data-index="0"] button')
+      .trigger('click')
     await wrapper.get('article[data-operation-id="op-2"] input[name="angle"]').setValue('90')
     const before = expectResultsInSync()
     const beforeTarget = target().matrix.clone()
@@ -133,6 +140,48 @@ describe('transformation stack integration', () => {
     expect(target().matrix).not.toEqual(beforeTarget)
     expect(after.vertices[0]?.point[0]).toBeCloseTo(2.5)
     expect(after.vertices[0]?.point[1]).toBeCloseTo(-0.5)
+  })
+
+  it('links symbolic rotation angle edits to numeric Final Matrix, vertices and the same renderer inputs', async () => {
+    wrapper = mount(App)
+    await add('rotation')
+    const operation = wrapper.get('article')
+    await operation.get('td[data-index="0"] button').trigger('click')
+    await operation.get('input[name="angle"]').setValue('45')
+    const state = wrapper.getComponent(TransformStackPanel).props('state')
+    expect(state.operations[0]?.transform).toEqual({
+      type: 'rotation',
+      axis: 'z',
+      angle: Math.PI / 4,
+    })
+    expect(Object.keys(state.operations[0]!)).toEqual(['id', 'transform'])
+    expect(expectResultsInSync().matrix).toEqual(
+      toMatrix({ type: 'rotation', axis: 'z', angle: Math.PI / 4 }),
+    )
+    expect(wrapper.get('.geometry-panel td[data-index="0"]').text()).toBe('0.7071')
+
+    const viewport = vi.mocked(mountHarukaViewport).mock.results[0]!.value
+    const calls = vi.mocked(viewport.sync).mock.calls.length
+    await operation.get('input[name="angle"]').setValue('')
+    expect(wrapper.getComponent(TransformStackPanel).props('state')).toBe(state)
+    expect(vi.mocked(viewport.sync).mock.calls).toHaveLength(calls)
+    expectResultsInSync()
+    await operation.get('input[name="angle"]').trigger('blur')
+    await operation.get('td[data-index="4"] button').trigger('click')
+    await operation.get('input[name="angle"]').setValue('90')
+    await operation.get('input[name="angle"]').trigger('blur')
+
+    const { matrix, vertices } = expectResultsInSync()
+    expect(matrix).toEqual(toMatrix({ type: 'rotation', axis: 'z', angle: Math.PI / 2 }))
+    expect(vertices[0]!.point[0]).toBeCloseTo(0.5)
+    expect(vertices[0]!.point[1]).toBeCloseTo(-0.5)
+    expect(operation.get('td[data-index="0"]').text()).toBe('cos(90°)')
+    expect(operation.get('td[data-index="1"]').text()).toBe('-sen(90°)')
+    expect(wrapper.get('.geometry-panel td[data-index="0"]').text()).toBe('0')
+    expect(wrapper.get('.geometry-panel td[data-index="1"]').text()).toBe('-1')
+    expect(
+      wrapper.get('.geometry-panel').find('input, button, [tabindex], [contenteditable]').exists(),
+    ).toBe(false)
   })
 
   it('mounts the viewport and explicitly synchronizes the initial empty stack', () => {
@@ -185,6 +234,36 @@ describe('transformation stack integration', () => {
     expect((header.get('button[aria-label="Remove"]').element as HTMLButtonElement).disabled).toBe(
       false,
     )
+  })
+
+  it('keeps each notation and rotation axis controls in the card header above the matrix', async () => {
+    wrapper = mount(App)
+    for (const [type, title, notation] of [
+      ['translation', 'Translation', 'T(x, y, z)'],
+      ['rotation', 'Rotation', 'Rz(θ)'],
+      ['scale', 'Scale', 'S(sx, sy, sz)'],
+      ['reflection', 'Reflection', 'RefYZ'],
+      ['shear', 'Shear', 'H(kᵢⱼ)'],
+    ]) {
+      await add(type!)
+      const card = wrapper.findAll('article').slice(-1)[0]!
+      const header = card.get('header')
+      expect(header.get('h2').text()).toBe(title)
+      expect(header.get('.notation').text()).toContain(notation)
+      expect(card.findAll('.notation')).toHaveLength(1)
+      expect(card.get('.operation-editor').element.firstElementChild?.tagName).toBe('TABLE')
+      expect(card.get('.operation-editor').find('.notation, .axis-selector').exists()).toBe(false)
+      expect(card.findAll('td')).toHaveLength(16)
+    }
+    const rotationHeader = wrapper.get('article[data-operation-id="op-2"] header')
+    expect(rotationHeader.findAll('.axis-selector button').map((button) => button.text())).toEqual([
+      'X',
+      'Y',
+      'Z',
+    ])
+    await rotationHeader.get('button[aria-label="Rotation axis X"]').trigger('click')
+    expect(rotationHeader.get('.notation sub').text()).toBe('x')
+    expectResultsInSync()
   })
 
   it('adds all five transform families in application order without reusing removed IDs', async () => {
@@ -263,6 +342,9 @@ describe('transformation stack integration', () => {
     await add('translation')
     await wrapper.get('article input[type="number"]').setValue('2')
     await add('rotation')
+    await wrapper
+      .get('article[data-operation-id="op-2"] td[data-index="0"] button')
+      .trigger('click')
     await wrapper.get('article[data-operation-id="op-2"] input[type="number"]').setValue('90')
     const first = wrapper.get('article[data-operation-id="op-1"]')
     const last = wrapper.get('article[data-operation-id="op-2"]')
