@@ -99,7 +99,9 @@ The Pages workflow runs on pushes to `main` and can also be started manually wit
 `workflow_dispatch`. It runs `npm ci`, unit tests and the production build, then publishes only
 `dist/` using the official GitHub Pages actions.
 
-The build receives `HARUKA_BASE_PATH=/<repository-name>/` from the GitHub repository context.
+Before building, `configure-pages` reads the site's actual configuration. Its `base_path` output
+plus a trailing slash becomes `HARUKA_BASE_PATH`: an empty path gives `/` for a custom domain,
+while `/haruka` gives `/haruka/` for Project Pages. The repository name is not used to derive the base.
 Without this variable, development and production builds use `/`. Explicit values must be `/`
 or an absolute path with a trailing slash, such as `/haruka/`; invalid values fail immediately.
 Vue DevTools remains independently opt-in through `HARUKA_DEVTOOLS=1`.
@@ -114,4 +116,6 @@ HARUKA_BASE_PATH=/haruka/ npm run preview
 Open the preview URL at `/haruka/`. Run `npm run build` without the variable to restore a root build.
 
 In the repository, select **Settings → Pages → Build and deployment → Source → GitHub Actions**.
-This setting is manual; local checks do not publish or change remote configuration.
+For the current public URL, **Settings → Pages → Custom domain** should be `haruka.auank.com`.
+Custom workflow deployments do not require a `CNAME` file in the artifact.
+Repository settings are configured manually; local checks do not publish or change remote configuration.
