@@ -34,9 +34,9 @@ const shear: Transform = Object.freeze({
 const reflection: Transform = Object.freeze({ type: 'reflection', plane: 'yz' })
 const state: TransformStackState = Object.freeze({
   operations: Object.freeze([
-    Object.freeze({ id: 'op-t', transform: translation }),
-    Object.freeze({ id: 'op-r', transform: rotation }),
     Object.freeze({ id: 'op-s', transform: scale }),
+    Object.freeze({ id: 'op-r', transform: rotation }),
+    Object.freeze({ id: 'op-t', transform: translation }),
   ]),
 })
 
@@ -66,7 +66,7 @@ describe('writeThreeMatrix', () => {
     expect(matrix).toEqual(Array.from({ length: 16 }, (_, index) => index + 1))
   })
 
-  it('matches domain point transformation for composed translation and rotation', () => {
+  it('matches domain point transformation for application sequence [T, R]', () => {
     const matrix = Object.freeze(composeTransforms(Object.freeze([translation, rotation])))
     const point = Object.freeze([2, 3, 4] as const)
     const expected = transformPoint(matrix, point)
@@ -184,7 +184,7 @@ describe('applyTransformStackStateToObject', () => {
     expect(object.matrixWorldNeedsUpdate).toBe(true)
   })
 
-  it('applies [T, R, S] as S · R · T without mutating state, operations or transforms', () => {
+  it('applies visual/product [S, R, T] as S · R · T without mutating state, operations or transforms', () => {
     const object = new Object3D()
     const snapshot = structuredClone(state)
     const expected = multiply(toMatrix(scale), multiply(toMatrix(rotation), toMatrix(translation)))
@@ -201,7 +201,7 @@ describe('applyTransformStackStateToObject', () => {
     expect(object.matrixWorldNeedsUpdate).toBe(true)
   })
 
-  it('corrects renderer drift when the authoritative state is reapplied', () => {
+  it('corrects renderer drift when authoritative visual/product order [S, R, T] is reapplied', () => {
     const object = new Object3D()
     const expected = composeTransforms([translation, rotation, scale])
     applyTransformStackStateToObject(object, state)
@@ -217,10 +217,10 @@ describe('applyTransformStackStateToObject', () => {
     expect(object.matrixWorld.elements).toEqual(new ThreeMatrix4().set(...expected).elements)
   })
 
-  it('changes the rendered matrix when the application reorders [T, R] to [R, T]', () => {
+  it('changes the rendered product from R · T to T · R when T moves up visually', () => {
     const object = new Object3D()
     const original: TransformStackState = Object.freeze({
-      operations: Object.freeze(state.operations.slice(0, 2)),
+      operations: Object.freeze(state.operations.slice(1)),
     })
     applyTransformStackStateToObject(object, original)
     const before = [...object.matrix.elements]
@@ -228,7 +228,7 @@ describe('applyTransformStackStateToObject', () => {
     expect(beforePoint.x).toBeCloseTo(0, 12)
     expect(beforePoint.y).toBeCloseTo(1, 12)
     expect(beforePoint.z).toBe(0)
-    const moved = moveTransformOperation(original, 'op-r', 0)
+    const moved = moveTransformOperation(original, 'op-t', 0)
     expect(moved.ok).toBe(true)
     if (!moved.ok) throw new Error(moved.reason)
 
@@ -238,6 +238,6 @@ describe('applyTransformStackStateToObject', () => {
     expect(object.matrix.elements).toEqual(new ThreeMatrix4().set(...expected).elements)
     expect(object.matrix.elements).not.toEqual(before)
     expect(new Vector3().applyMatrix4(object.matrix).toArray()).toEqual([1, 0, 0])
-    expect(original.operations).toEqual(state.operations.slice(0, 2))
+    expect(original.operations).toEqual(state.operations.slice(1))
   })
 })

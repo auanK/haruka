@@ -3,6 +3,8 @@ import {
   composeTransforms,
   computeTransformStages,
   identity,
+  multiply,
+  toMatrix,
   transformPoint,
   type Transform,
 } from '../../domain'
@@ -20,11 +22,14 @@ import {
 
 const translation: Transform = Object.freeze({ type: 'translation', x: 1, y: 0, z: 0 })
 const rotation: Transform = Object.freeze({ type: 'rotation', axis: 'z', angle: Math.PI / 2 })
-const scale: Transform = Object.freeze({ type: 'scale', x: 2, y: 2, z: 2 })
+const scale: Transform = Object.freeze({ type: 'scale', x: 2, y: 3, z: 4 })
 const op1: TransformOperation = Object.freeze({ id: 'op-t', transform: translation })
 const op2: TransformOperation = Object.freeze({ id: 'op-r', transform: rotation })
 const op3: TransformOperation = Object.freeze({ id: 'op-s', transform: scale })
 const state: TransformStackState = Object.freeze({ operations: Object.freeze([op1, op2, op3]) })
+const productState: TransformStackState = Object.freeze({
+  operations: Object.freeze([op3, op2, op1]),
+})
 
 const editedState = (result: StackEditResult): TransformStackState => {
   expect(result.ok).toBe(true)
@@ -49,14 +54,32 @@ describe('addTransformOperation', () => {
     expect(op1).toEqual({ id: 'op-t', transform: translation })
   })
 
-  it('appends an operation while preserving the existing order', () => {
+  it('prepends R above T in visual/product order without mutating or copying operations', () => {
     const original = Object.freeze({ operations: Object.freeze([op1]) })
     const next = editedState(addTransformOperation(original, op2))
 
-    expect(next.operations).toEqual([op1, op2])
+    expect(next.operations).toEqual([op2, op1])
+    expect(next.operations[0]).toBe(op2)
+    expect(next.operations[1]).toBe(op1)
+    expect(next.operations).not.toBe(original.operations)
     expect(next).not.toBe(original)
     expect(original.operations).toEqual([op1])
     expect(op2).toEqual({ id: 'op-r', transform: rotation })
+  })
+
+  it('prepends S to visual [R, T] because a new operation left-multiplies the existing product', () => {
+    const original = Object.freeze({ operations: Object.freeze([op2, op1]) })
+    const previousMatrix = composeTransforms(getTransformSequence(original))
+    const next = editedState(addTransformOperation(original, op3))
+
+    expect(next.operations).toEqual([op3, op2, op1])
+    expect(next.operations[0]).toBe(op3)
+    expect(next.operations[1]).toBe(op2)
+    expect(next.operations[2]).toBe(op1)
+    expect(composeTransforms(getTransformSequence(next))).toEqual(
+      multiply(toMatrix(scale), previousMatrix),
+    )
+    expect(original.operations).toEqual([op2, op1])
   })
 
   it('rejects a duplicate ID without replacing the existing operation', () => {
@@ -72,7 +95,7 @@ describe('addTransformOperation', () => {
 })
 
 describe('updateTransformOperation', () => {
-  it('replaces the transform while preserving ID, position and other operations', () => {
+  it('replaces the transform while preserving ID, visual position and other operations', () => {
     const replacement: Transform = Object.freeze({ type: 'rotation', axis: 'x', angle: -Math.PI })
     const next = editedState(updateTransformOperation(state, op2.id, replacement))
 
@@ -143,7 +166,7 @@ describe('moveTransformOperation', () => {
     [op2.id, 2, [op1, op3, op2]],
     [op2.id, 1, [op1, op2, op3]],
   ] as const)(
-    'moves %s to final index %i, preserving IDs and transforms',
+    'moves %s to final visual index %i, preserving IDs and transforms',
     (id, index, expected) => {
       const next = editedState(moveTransformOperation(state, id, index))
 
@@ -186,17 +209,20 @@ describe('getTransformSequence', () => {
     expect(getTransformSequence(createTransformStackState())).toEqual([])
   })
 
-  it('preserves operation order and shares the original transforms', () => {
-    const sequence = getTransformSequence(state)
+  it('derives application order [T, R, S] from visual/product [S, R, T] and shares transforms without mutation', () => {
+    const operations = productState.operations
+    const sequence = getTransformSequence(productState)
 
     expect(sequence).toEqual([translation, rotation, scale])
     expect(sequence[0]).toBe(translation)
     expect(sequence[1]).toBe(rotation)
     expect(sequence[2]).toBe(scale)
-    expect(state.operations).toEqual([op1, op2, op3])
+    expect(productState.operations).toBe(operations)
+    expect(productState.operations).toEqual([op3, op2, op1])
 
-    const moved = editedState(moveTransformOperation(state, op3.id, 0))
-    expect(getTransformSequence(moved)).toEqual([scale, translation, rotation])
+    const moved = editedState(moveTransformOperation(productState, op1.id, 1))
+    expect(moved.operations).toEqual([op3, op1, op2])
+    expect(getTransformSequence(moved)).toEqual([rotation, translation, scale])
   })
 
   it('keeps adjacent translations separate through add, update, move and derivation', () => {
@@ -205,20 +231,20 @@ describe('getTransformSequence', () => {
     const operation = Object.freeze({ id: 'op-t2', transform: second })
     const original = Object.freeze({ operations: Object.freeze([op1]) })
     const added = editedState(addTransformOperation(original, operation))
-    expect(added.operations).toEqual([op1, operation])
+    expect(added.operations).toEqual([operation, op1])
 
     const updated = editedState(updateTransformOperation(added, operation.id, replacement))
-    expect(updated.operations).toEqual([op1, { id: operation.id, transform: replacement }])
+    expect(updated.operations).toEqual([{ id: operation.id, transform: replacement }, op1])
 
-    const moved = editedState(moveTransformOperation(updated, operation.id, 0))
-    expect(moved.operations).toEqual([{ id: operation.id, transform: replacement }, op1])
+    const moved = editedState(moveTransformOperation(updated, op1.id, 0))
+    expect(moved.operations).toEqual([op1, { id: operation.id, transform: replacement }])
     const sequence = getTransformSequence(moved)
     expect(sequence).toEqual([replacement, translation])
     expect(sequence[0]).toBe(replacement)
     expect(sequence[1]).toBe(translation)
     expect(original.operations).toEqual([op1])
-    expect(added.operations).toEqual([op1, operation])
-    expect(updated.operations).toEqual([op1, { id: operation.id, transform: replacement }])
+    expect(added.operations).toEqual([operation, op1])
+    expect(updated.operations).toEqual([{ id: operation.id, transform: replacement }, op1])
   })
 })
 
@@ -230,26 +256,43 @@ describe('domain integration', () => {
     expect(computeTransformStages(sequence)).toEqual([identity()])
   })
 
-  it('derives domain stages whose final matrix matches the composition', () => {
-    const sequence = getTransformSequence(state)
-    const stages = computeTransformStages(sequence)
+  it('composes visual/product [S, R, T] as S · R · T for a non-commuting point', () => {
+    const matrix = composeTransforms(getTransformSequence(productState))
+    const expected = multiply(toMatrix(scale), multiply(toMatrix(rotation), toMatrix(translation)))
 
-    expect(stages).toHaveLength(4)
-    expect(stages[0]).toEqual(identity())
+    expect(matrix).toEqual(expected)
+    const point = transformPoint(matrix, [2, 3, 4])
+    expect(point[0]).toBeCloseTo(-6)
+    expect(point[1]).toBeCloseTo(9)
+    expect(point[2]).toBeCloseTo(16)
+    expect(productState.operations).toEqual([op3, op2, op1])
+  })
+
+  it('derives application stages I → T → R · T → S · R · T from visual/product [S, R, T]', () => {
+    const sequence = getTransformSequence(productState)
+    const stages = computeTransformStages(sequence)
+    const translated = toMatrix(translation)
+    const rotated = multiply(toMatrix(rotation), translated)
+    const scaled = multiply(toMatrix(scale), rotated)
+
+    expect(stages).toEqual([identity(), translated, rotated, scaled])
     expect(stages[3]).toEqual(composeTransforms(sequence))
     const point = transformPoint(stages[3]!, [0, 0, 0])
     expect(point[0]).toBeCloseTo(0)
-    expect(point[1]).toBeCloseTo(2)
+    expect(point[1]).toBeCloseTo(3)
     expect(point[2]).toBeCloseTo(0)
-    expect(state.operations).toEqual([op1, op2, op3])
+    expect(productState.operations).toEqual([op3, op2, op1])
   })
 
-  it('changes the composition and a known point when non-commuting operations are reordered', () => {
-    const original = Object.freeze({ operations: Object.freeze([op1, op2]) })
+  it('moves T up in visual/product [R, T] to [T, R], changing R · T to T · R', () => {
+    const original = Object.freeze({ operations: Object.freeze([op2, op1]) })
     const before = composeTransforms(getTransformSequence(original))
-    const moved = editedState(moveTransformOperation(original, op2.id, 0))
+    const moved = editedState(moveTransformOperation(original, op1.id, 0))
     const after = composeTransforms(getTransformSequence(moved))
 
+    expect(moved.operations).toEqual([op1, op2])
+    expect(before).toEqual(multiply(toMatrix(rotation), toMatrix(translation)))
+    expect(after).toEqual(multiply(toMatrix(translation), toMatrix(rotation)))
     expect(before).not.toEqual(after)
     const beforePoint = transformPoint(before, [0, 0, 0])
     const afterPoint = transformPoint(after, [0, 0, 0])
@@ -259,6 +302,6 @@ describe('domain integration', () => {
     expect(afterPoint[0]).toBeCloseTo(1)
     expect(afterPoint[1]).toBeCloseTo(0)
     expect(afterPoint[2]).toBeCloseTo(0)
-    expect(original.operations).toEqual([op1, op2])
+    expect(original.operations).toEqual([op2, op1])
   })
 })

@@ -40,10 +40,16 @@ ui  renderer
 ## Application State
 
 - Application state owns the editable operations and their authoritative identity and order.
+- Haruka uses column vectors (`p' = M · p`). `TransformStackState.operations` is visual top → bottom,
+  matching matrix factors left → right: stack `[T3, T2, T1]` represents `M = T3 · T2 · T1`,
+  with application order `T1 → T2 → T3`.
+- A newly added transformation is applied after the existing composition, so it left-multiplies
+  the accumulated matrix (`Mnew = Tnew · Mold`) and is inserted at the top.
 - Operations have stable application-level IDs supplied by the caller; mathematical `Transform`
   values remain ID-free and define their mathematical parameters.
-- The mathematical sequence is derived from the ordered operations, without merging or storing
-  a second copy of the stack. Pure edits return a new state or an explicit failure.
+- `getTransformSequence` derives application order bottom → top: `[T, R, S]`, so the point follows
+  `p → T → R → S`. Domain stages stay `I → T → R·T → S·R·T`, with no second stored stack.
+  Pure edits return a new state or an explicit failure; reorder uses final visual indices.
 - Three.js scene state is derived from application/domain data, never authoritative.
 
 ## Didactic Cube

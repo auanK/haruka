@@ -8,6 +8,7 @@ export type TransformOperation = {
 }
 
 export type TransformStackState = {
+  /** Visual top → bottom = matrix product left → right; points apply bottom → top. */
   readonly operations: readonly TransformOperation[]
 }
 
@@ -27,7 +28,8 @@ export const addTransformOperation = (
   if (state.operations.some(({ id }) => id === operation.id)) {
     return { ok: false, reason: 'duplicate-operation-id' }
   }
-  return { ok: true, state: { operations: [...state.operations, operation] } }
+  // Applied last: Mnew = Moperation · Mold, so the new factor goes first.
+  return { ok: true, state: { operations: [operation, ...state.operations] } }
 }
 
 export const updateTransformOperation = (
@@ -83,4 +85,4 @@ export const moveTransformOperation = (
 }
 
 export const getTransformSequence = (state: TransformStackState): readonly Transform[] =>
-  state.operations.map(({ transform }) => transform)
+  state.operations.map(({ transform }) => transform).reverse()

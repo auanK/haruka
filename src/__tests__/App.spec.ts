@@ -3,7 +3,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { Matrix4, Vector3 } from 'three'
 import type { CubeVertex } from '../app/didactic-cube'
-import { composeTransforms, identity, toMatrix, type Matrix4 as HarukaMatrix4 } from '../domain'
+import {
+  composeTransforms,
+  identity,
+  multiply,
+  toMatrix,
+  transformPoint,
+  type Matrix4 as HarukaMatrix4,
+} from '../domain'
+import { getTransformSequence } from '../app/transform-stack-state'
+import { formatMatrixValue } from '../ui/transform-stack'
 import { applyHarukaMatrixToObject } from '../renderer/three-matrix'
 import App from '../App.vue'
 import TransformStackPanel from '../components/TransformStackPanel.vue'
@@ -55,6 +64,9 @@ const resultPanel = () => wrapper.getComponent({ name: 'GeometryPanel' })
 const expectResultsInSync = () => {
   const matrix: HarukaMatrix4 = resultPanel().props('finalMatrix')
   const vertices: readonly CubeVertex[] = resultPanel().props('vertices')
+  expect(wrapper.findAll('.geometry-panel td[data-index]').map((cell) => cell.text())).toEqual(
+    matrix.map(formatMatrixValue),
+  )
   expect(target().matrix).toEqual(new Matrix4().set(...matrix))
   const update = vi.mocked(mountHarukaViewport).mock.results[0]!.value.updateVertexLabels
   expect(vi.mocked(update).mock.calls.slice(-1)[0]?.[0]).toBe(vertices)
@@ -101,24 +113,103 @@ describe('transformation stack integration', () => {
     expect(new Vector3().applyMatrix4(target().matrix).toArray()).toEqual([2, 0, 0])
   })
 
-  it('uses the exact domain composition for Final Matrix and the target after Translation, Rotation and Scale edits', async () => {
+  it('keeps exact application-order composition for Final Matrix and the target after Translation, Rotation and Scale edits', async () => {
     wrapper = mount(App)
-    for (const [type, field, value] of [
+    for (const [index, [type, field, value]] of [
       ['translation', 'x', '2.123456'],
       ['rotation', 'angle', '37.25'],
       ['scale', 'y', '0'],
-    ]) {
+    ].entries()) {
       await add(type!)
-      const last = wrapper.findAll('article').slice(-1)[0]!
-      if (type === 'rotation') await last.get('td[data-index="0"] button').trigger('click')
-      await last.get(`input[name="${field}"]`).setValue(value!)
+      const card = wrapper.get(`article[data-operation-id="op-${index + 1}"]`)
+      if (type === 'rotation') await card.get('td[data-index="0"] button').trigger('click')
+      await card.get(`input[name="${field}"]`).setValue(value!)
       const { matrix } = expectResultsInSync()
-      const operations = wrapper.getComponent(TransformStackPanel).props('state').operations
-      expect(matrix).toEqual(composeTransforms(operations.map(({ transform }) => transform)))
+      const state = wrapper.getComponent(TransformStackPanel).props('state')
+      expect(matrix).toEqual(composeTransforms(getTransformSequence(state)))
     }
   })
 
-  it('updates final vertices, Final Matrix and the target together after a non-commuting reorder', async () => {
+  it('displays temporal additions T, R, S as visual/product S, R, T while applying T → R → S to a known point', async () => {
+    wrapper = mount(App)
+    await add('translation')
+    await wrapper.get('article[data-operation-id="op-1"] input[name="x"]').setValue('2')
+    await add('rotation')
+    const rotationCard = wrapper.get('article[data-operation-id="op-2"]')
+    await rotationCard.get('td[data-index="0"] button').trigger('click')
+    await rotationCard.get('input[name="angle"]').setValue('90')
+    await rotationCard.get('input[name="angle"]').trigger('blur')
+    await add('scale')
+    const scaleCard = wrapper.get('article[data-operation-id="op-3"]')
+    for (const [field, value] of [
+      ['x', '2'],
+      ['y', '3'],
+      ['z', '4'],
+    ]) {
+      await scaleCard.get(`input[name="${field}"]`).setValue(value!)
+    }
+
+    expect(wrapper.findAll('article').map((card) => card.attributes('data-operation-id'))).toEqual([
+      'op-3',
+      'op-2',
+      'op-1',
+    ])
+    expect(wrapper.findAll('article h2').map((title) => title.text())).toEqual([
+      'Scale',
+      'Rotation',
+      'Translation',
+    ])
+    expect(
+      wrapper
+        .getComponent(TransformStackPanel)
+        .props('state')
+        .operations.map(({ id }) => id),
+    ).toEqual(['op-3', 'op-2', 'op-1'])
+    const expected = multiply(
+      toMatrix({ type: 'scale', x: 2, y: 3, z: 4 }),
+      multiply(
+        toMatrix({ type: 'rotation', axis: 'z', angle: Math.PI / 2 }),
+        toMatrix({ type: 'translation', x: 2, y: 0, z: 0 }),
+      ),
+    )
+    const { matrix, vertices } = expectResultsInSync()
+    expect(matrix).toEqual(expected)
+    const point = [1, 2, 3] as const
+    const domainPoint = transformPoint(matrix, point)
+    const rendererPoint = new Vector3(...point).applyMatrix4(target().matrix).toArray()
+    for (const [axis, value] of [-4, 9, 12].entries()) {
+      expect(domainPoint[axis]).toBeCloseTo(value, 12)
+      expect(rendererPoint[axis]).toBeCloseTo(value, 12)
+    }
+    for (const [axis, value] of [1, 4.5, -2].entries()) {
+      expect(vertices[0]!.point[axis]).toBeCloseTo(value, 12)
+    }
+    const copy = wrapper.get('.stack-panel > p').text()
+    expect(copy).not.toContain('Applied from top to bottom.')
+    expect(copy).toContain('Matrix product: top → bottom.')
+    expect(copy).toContain('Applied to points: bottom → top.')
+
+    await add('reflection')
+    expect(wrapper.findAll('article').map((card) => card.attributes('data-operation-id'))).toEqual([
+      'op-4',
+      'op-3',
+      'op-2',
+      'op-1',
+    ])
+    const reflected = expectResultsInSync()
+    expect(reflected.matrix).toEqual(
+      multiply(toMatrix({ type: 'reflection', plane: 'yz' }), expected),
+    )
+    const reflectedPoint = new Vector3(...point).applyMatrix4(target().matrix).toArray()
+    for (const [axis, value] of [4, 9, 12].entries()) {
+      expect(reflectedPoint[axis]).toBeCloseTo(value, 12)
+    }
+    for (const [axis, value] of [-1, 4.5, -2].entries()) {
+      expect(reflected.vertices[0]!.point[axis]).toBeCloseTo(value, 12)
+    }
+  })
+
+  it('updates vertices, Final Matrix and the target when visual/product R · T becomes T · R', async () => {
     wrapper = mount(App)
     await add('translation')
     await wrapper.get('article input[name="x"]').setValue('2')
@@ -128,13 +219,29 @@ describe('transformation stack integration', () => {
       .trigger('click')
     await wrapper.get('article[data-operation-id="op-2"] input[name="angle"]').setValue('90')
     const before = expectResultsInSync()
+    expect(before.matrix).toEqual(
+      multiply(
+        toMatrix({ type: 'rotation', axis: 'z', angle: Math.PI / 2 }),
+        toMatrix({ type: 'translation', x: 2, y: 0, z: 0 }),
+      ),
+    )
     const beforeTarget = target().matrix.clone()
 
     await wrapper
-      .get('article[data-operation-id="op-1"] button[aria-label="Move down"]')
+      .get('article[data-operation-id="op-1"] button[aria-label="Move up"]')
       .trigger('click')
 
     const after = expectResultsInSync()
+    expect(wrapper.findAll('article').map((card) => card.attributes('data-operation-id'))).toEqual([
+      'op-1',
+      'op-2',
+    ])
+    expect(after.matrix).toEqual(
+      multiply(
+        toMatrix({ type: 'translation', x: 2, y: 0, z: 0 }),
+        toMatrix({ type: 'rotation', axis: 'z', angle: Math.PI / 2 }),
+      ),
+    )
     expect(after.matrix).not.toEqual(before.matrix)
     expect(after.vertices[0]?.point).not.toEqual(before.vertices[0]?.point)
     expect(target().matrix).not.toEqual(beforeTarget)
@@ -246,7 +353,7 @@ describe('transformation stack integration', () => {
       ['shear', 'Shear', 'H(kᵢⱼ)'],
     ]) {
       await add(type!)
-      const card = wrapper.findAll('article').slice(-1)[0]!
+      const card = wrapper.findAll('article')[0]!
       const header = card.get('header')
       expect(header.get('h2').text()).toBe(title)
       expect(header.get('.notation').text()).toContain(notation)
@@ -266,7 +373,7 @@ describe('transformation stack integration', () => {
     expectResultsInSync()
   })
 
-  it('adds all five transform families in application order without reusing removed IDs', async () => {
+  it('prepends all five families in visual/product order without reusing removed IDs', async () => {
     wrapper = mount(App)
     const types = ['translation', 'rotation', 'scale', 'reflection', 'shear']
     for (const type of types) await add(type)
@@ -276,10 +383,10 @@ describe('transformation stack integration', () => {
         .getComponent(TransformStackPanel)
         .props('state')
         .operations.map(({ transform }) => transform.type),
-    ).toEqual(types)
+    ).toEqual([...types].reverse())
     expect(
       wrapper.findAll('article').map((article) => article.attributes('data-operation-id')),
-    ).toEqual(['op-1', 'op-2', 'op-3', 'op-4', 'op-5'])
+    ).toEqual(['op-5', 'op-4', 'op-3', 'op-2', 'op-1'])
 
     await wrapper
       .get('article[data-operation-id="op-2"]')
@@ -289,7 +396,19 @@ describe('transformation stack integration', () => {
 
     expect(
       wrapper.findAll('article').map((article) => article.attributes('data-operation-id')),
-    ).toEqual(['op-1', 'op-3', 'op-4', 'op-5', 'op-6'])
+    ).toEqual(['op-6', 'op-5', 'op-4', 'op-3', 'op-1'])
+    expect(
+      (
+        wrapper.get('article[data-operation-id="op-6"] button[aria-label="Move up"]')
+          .element as HTMLButtonElement
+      ).disabled,
+    ).toBe(true)
+    expect(
+      (
+        wrapper.get('article[data-operation-id="op-1"] button[aria-label="Move down"]')
+          .element as HTMLButtonElement
+      ).disabled,
+    ).toBe(true)
   })
 
   it('edits Translation X immediately through application state and synchronizes the real target', async () => {
@@ -337,7 +456,7 @@ describe('transformation stack integration', () => {
     expect(target().matrix.elements).toEqual(new Matrix4().elements)
   })
 
-  it('reorders by stable ID in visual application order and changes a non-commuting result', async () => {
+  it('moves factors by stable ID in visual/product order and keeps DOM, Final Matrix and renderer synchronized both ways', async () => {
     wrapper = mount(App)
     await add('translation')
     await wrapper.get('article input[type="number"]').setValue('2')
@@ -346,34 +465,58 @@ describe('transformation stack integration', () => {
       .get('article[data-operation-id="op-2"] td[data-index="0"] button')
       .trigger('click')
     await wrapper.get('article[data-operation-id="op-2"] input[type="number"]').setValue('90')
-    const first = wrapper.get('article[data-operation-id="op-1"]')
-    const last = wrapper.get('article[data-operation-id="op-2"]')
+    const first = wrapper.get('article[data-operation-id="op-2"]')
+    const last = wrapper.get('article[data-operation-id="op-1"]')
     const up = first.get('button[aria-label="Move up"]')
     const down = last.get('button[aria-label="Move down"]')
     expect((up.element as HTMLButtonElement).disabled).toBe(true)
     expect((down.element as HTMLButtonElement).disabled).toBe(true)
-    const before = [...target().matrix.elements]
+    expect(wrapper.findAll('article').map((card) => card.attributes('data-operation-id'))).toEqual([
+      'op-2',
+      'op-1',
+    ])
+    const before = expectResultsInSync()
+    expect(before.matrix).toEqual(
+      multiply(
+        toMatrix({ type: 'rotation', axis: 'z', angle: Math.PI / 2 }),
+        toMatrix({ type: 'translation', x: 2, y: 0, z: 0 }),
+      ),
+    )
+    const beforeTarget = target().matrix.clone()
     const point = new Vector3().applyMatrix4(target().matrix)
     expect(point.x).toBeCloseTo(0, 12)
     expect(point.y).toBeCloseTo(2, 12)
 
-    await first.get('button[aria-label="Move down"]').trigger('click')
-
-    expect(
-      wrapper.findAll('article').map((article) => article.attributes('data-operation-id')),
-    ).toEqual(['op-2', 'op-1'])
-    expect(new Vector3().applyMatrix4(target().matrix).toArray()).toEqual([2, 0, 0])
-    expect(target().matrix.elements).not.toEqual(before)
-
-    await wrapper
-      .get('article[data-operation-id="op-1"]')
-      .get('button[aria-label="Move up"]')
-      .trigger('click')
+    await last.get('button[aria-label="Move up"]').trigger('click')
 
     expect(
       wrapper.findAll('article').map((article) => article.attributes('data-operation-id')),
     ).toEqual(['op-1', 'op-2'])
-    expect(target().matrix.elements).toEqual(before)
+    expect(expectResultsInSync().matrix).toEqual(
+      multiply(
+        toMatrix({ type: 'translation', x: 2, y: 0, z: 0 }),
+        toMatrix({ type: 'rotation', axis: 'z', angle: Math.PI / 2 }),
+      ),
+    )
+    expect(new Vector3().applyMatrix4(target().matrix).toArray()).toEqual([2, 0, 0])
+    expect(target().matrix).not.toEqual(beforeTarget)
+    expect((last.get('button[aria-label="Move up"]').element as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    expect(
+      (first.get('button[aria-label="Move down"]').element as HTMLButtonElement).disabled,
+    ).toBe(true)
+
+    await wrapper
+      .get('article[data-operation-id="op-1"]')
+      .get('button[aria-label="Move down"]')
+      .trigger('click')
+
+    expect(
+      wrapper.findAll('article').map((article) => article.attributes('data-operation-id')),
+    ).toEqual(['op-2', 'op-1'])
+    expect(expectResultsInSync().matrix).toEqual(before.matrix)
+    expect(target().matrix).toEqual(beforeTarget)
   })
 
   it.each(['duplicate-operation-id', 'operation-not-found', 'index-out-of-range'] as const)(

@@ -37,7 +37,10 @@ const addOperation = () =>
 <template>
   <aside class="stack-panel" aria-labelledby="stack-title">
     <h1 id="stack-title">Transformation Stack</h1>
-    <p>Applied from top to bottom.</p>
+    <p>
+      Matrix product: top → bottom.<br />
+      Applied to points: bottom → top.
+    </p>
     <form @submit.prevent="addOperation">
       <label class="visually-hidden" for="transform-type">Transform type</label>
       <select id="transform-type" v-model="selectedType" name="transform-type">
