@@ -92,3 +92,26 @@ Sequential memory-conscious build (`vue-tsc` followed by `vite build`):
 ```bash
 npm run build
 ```
+
+## GitHub Pages
+
+The Pages workflow runs on pushes to `main` and can also be started manually with
+`workflow_dispatch`. It runs `npm ci`, unit tests and the production build, then publishes only
+`dist/` using the official GitHub Pages actions.
+
+The build receives `HARUKA_BASE_PATH=/<repository-name>/` from the GitHub repository context.
+Without this variable, development and production builds use `/`. Explicit values must be `/`
+or an absolute path with a trailing slash, such as `/haruka/`; invalid values fail immediately.
+Vue DevTools remains independently opt-in through `HARUKA_DEVTOOLS=1`.
+
+To preview a Project Pages build locally:
+
+```bash
+HARUKA_BASE_PATH=/haruka/ npm run build
+HARUKA_BASE_PATH=/haruka/ npm run preview
+```
+
+Open the preview URL at `/haruka/`. Run `npm run build` without the variable to restore a root build.
+
+In the repository, select **Settings → Pages → Build and deployment → Source → GitHub Actions**.
+This setting is manual; local checks do not publish or change remote configuration.
