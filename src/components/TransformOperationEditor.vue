@@ -180,8 +180,9 @@ const selectPlane = (plane: ReflectionPlane) => {
   align-items: center;
   gap: 0.3rem;
   min-height: 18px;
-  color: var(--color-text-muted);
+  color: var(--color-selection);
   font-size: 11px;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -226,9 +227,9 @@ const selectPlane = (plane: ReflectionPlane) => {
   min-height: 0;
   height: 16px;
   padding: 0 1px;
-  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in srgb, var(--color-selection) 15%, var(--color-border));
   border-radius: 2px;
-  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-input));
+  background: color-mix(in srgb, var(--color-selection) 16%, var(--color-input));
   color: inherit;
   font: inherit;
   line-height: 14px;
@@ -246,19 +247,26 @@ input::-webkit-outer-spin-button {
   appearance: none;
 }
 
-.cell-control:hover {
-  border-color: var(--color-accent);
+.cell-control:hover,
+.axis-selector button:hover:enabled {
+  border-color: var(--color-interaction);
+}
+
+.axis-selector button:not([aria-pressed='true']):hover:enabled {
+  color: var(--color-interaction-light);
 }
 
 .cell-control:focus-visible,
 .angle-editor:focus-within {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-interaction);
   outline-offset: -1px;
+  border-color: var(--color-interaction);
 }
 
 .cell-control[aria-pressed='true'],
 .axis-selector button[aria-pressed='true'] {
-  background: color-mix(in srgb, var(--color-accent) 25%, var(--color-input));
+  background: var(--color-selection-strong);
+  border-color: var(--color-selection);
   color: var(--color-text);
   font-weight: 600;
 }

@@ -106,6 +106,7 @@ const addOperation = () =>
   overflow-y: auto;
   padding: 0.75rem;
   border-left: 1px solid var(--color-border);
+  border-top: 2px solid var(--color-selection);
   background: var(--color-panel);
 }
 
@@ -136,10 +137,22 @@ form {
 form select {
   flex: 1;
   min-width: 0;
+  border-color: color-mix(in srgb, var(--color-interaction) 30%, var(--color-border));
+}
+form select:hover {
+  border-color: var(--color-interaction);
 }
 form button {
   width: 28px;
   font-size: 1rem;
+  color: var(--color-interaction-light);
+  border: 1px solid color-mix(in srgb, var(--color-interaction) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-interaction) 14%, var(--color-surface));
+}
+form button:hover:enabled {
+  color: #fff;
+  border-color: var(--color-interaction);
+  background: color-mix(in srgb, var(--color-interaction) 26%, var(--color-surface));
 }
 article {
   margin-top: 0.5rem;
@@ -156,13 +169,20 @@ article {
   min-height: 24px;
   padding: 0;
 }
+.operation-controls button:not(.remove):hover:enabled {
+  border-color: var(--color-interaction);
+  color: var(--color-interaction-light);
+}
 .remove {
   color: var(--color-danger);
+}
+.remove:hover:enabled {
+  border-color: var(--color-danger);
 }
 @media (max-width: 640px) {
   .stack-panel {
     flex: 1;
-    border-top: 1px solid var(--color-border);
+    border-top: 2px solid var(--color-selection);
     border-left: 0;
   }
 }

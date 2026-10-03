@@ -31,7 +31,7 @@ describe('createHarukaScene', () => {
     const { scene, camera, target, dispose } = createHarukaScene()
 
     expect(scene).toBeInstanceOf(Scene)
-    expect(scene.background).toEqual(new Color(0x151a20))
+    expect(scene.background).toEqual(new Color(0x111214))
     expect(camera).toBeInstanceOf(PerspectiveCamera)
     expect(target).toBeInstanceOf(Group)
     expect(target.parent).toBe(scene)

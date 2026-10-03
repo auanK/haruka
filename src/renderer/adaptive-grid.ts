@@ -48,6 +48,7 @@ const fragmentShader = /* glsl */ `
   uniform vec2 uMinorPhase;
   uniform vec2 uMajorPhase;
   uniform float uFadeRadius;
+  uniform vec3 uGroundColor;
   uniform vec3 uGridColor;
   uniform vec3 uMajorColor;
   uniform vec3 uXAxisColor;
@@ -83,21 +84,23 @@ const fragmentShader = /* glsl */ `
     // Z Axis line (x = 0)
     float zAxis = 1.0 - min(abs(pos.x + uCenter.x) / dPos.x, 1.0);
 
-    vec4 color = vec4(0.0);
+    // Base ground fill respecting circular fade radius
+    vec4 color = vec4(uGroundColor, 0.5 * alpha);
 
     if (minorLine > 0.05) {
-      color = vec4(uGridColor, minorLine * 0.35 * alpha);
+      vec4 minorCol = vec4(uGridColor, max(color.a, minorLine * 0.45 * alpha));
+      color = mix(color, minorCol, minorLine);
     }
     if (majorLine > 0.05) {
-      vec4 majorCol = vec4(uMajorColor, majorLine * 0.65 * alpha);
+      vec4 majorCol = vec4(uMajorColor, max(color.a, majorLine * 0.7 * alpha));
       color = mix(color, majorCol, majorLine);
     }
     if (xAxis > 0.05) {
-      vec4 xCol = vec4(uXAxisColor, xAxis * 0.85 * alpha);
+      vec4 xCol = vec4(uXAxisColor, max(color.a, xAxis * 0.9 * alpha));
       color = mix(color, xCol, xAxis);
     }
     if (zAxis > 0.05) {
-      vec4 zCol = vec4(uZAxisColor, zAxis * 0.85 * alpha);
+      vec4 zCol = vec4(uZAxisColor, max(color.a, zAxis * 0.9 * alpha));
       color = mix(color, zCol, zAxis);
     }
 
@@ -119,6 +122,7 @@ export const createAdaptiveGrid = (): AdaptiveGrid => {
     uMinorPhase: { value: new Vector2() },
     uMajorPhase: { value: new Vector2() },
     uFadeRadius: { value: 50.0 },
+    uGroundColor: { value: new Color(0x181a1d) },
     uGridColor: { value: new Color(0x29323d) },
     uMajorColor: { value: new Color(0x435263) },
     uXAxisColor: { value: new Color(0xdd6b70) },

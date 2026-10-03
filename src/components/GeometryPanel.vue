@@ -50,13 +50,14 @@ defineProps<{
   min-width: 210px;
   height: 100%;
   border-right: 1px solid var(--color-border);
+  border-top: 2px solid var(--color-interaction);
   background: var(--color-panel);
   overflow-y: auto;
 }
 
 header {
   padding: 0.5rem 0.65rem 0.35rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-interaction) 25%, var(--color-border));
 }
 
 h1 {
@@ -73,6 +74,11 @@ h1 {
   gap: 0.75rem;
 }
 
+.panel-content :deep(caption) {
+  color: var(--color-selection);
+  font-weight: 500;
+}
+
 .vertex-table {
   width: 100%;
   border-collapse: collapse;
@@ -87,16 +93,17 @@ h1 {
 
 .vertex-table thead th {
   padding: 0.2rem 0.3rem;
-  color: var(--color-text-muted);
+  color: var(--color-interaction-light);
   font-family: system-ui, sans-serif;
   font-size: 11px;
   font-weight: 500;
   text-align: right;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-interaction) 25%, var(--color-border));
+  background: color-mix(in srgb, var(--color-interaction) 10%, var(--color-surface));
 }
 
 .vertex-table thead th:first-child {
+  color: var(--color-text-muted);
   text-align: left;
 }
 
@@ -106,7 +113,7 @@ h1 {
 
 .vertex-table tbody th {
   padding: 0.12rem 0.3rem;
-  color: var(--color-accent);
+  color: var(--color-interaction);
   font-weight: 600;
   text-align: left;
 }
@@ -123,6 +130,7 @@ h1 {
     min-width: 0;
     height: auto;
     border-right: none;
+    border-top: 2px solid var(--color-interaction);
     border-bottom: 1px solid var(--color-border);
   }
 }

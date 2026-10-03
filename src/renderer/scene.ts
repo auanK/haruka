@@ -28,7 +28,7 @@ export type HarukaScene = {
 
 export const createHarukaScene = (): HarukaScene => {
   const scene = new Scene()
-  scene.background = new Color(0x151a20)
+  scene.background = new Color(0x111214)
   const camera = new PerspectiveCamera(45, 1, 0.1, 1000)
   camera.position.set(9, 7, 12)
   camera.lookAt(0, 0, 0)

@@ -78,16 +78,25 @@ onBeforeUnmount(() => {
 <style>
 :root {
   color-scheme: dark;
-  --color-background: #151a20;
-  --color-panel: #1b2129;
-  --color-surface: #222b35;
-  --color-surface-hover: #2b3745;
-  --color-border: #3a4655;
-  --color-text: #e1e8f0;
-  --color-text-muted: #9baabc;
-  --color-input: #131a22;
-  --color-accent: #85b7ef;
-  --color-danger: #ef9095;
+  --color-background: #121315;
+  --color-panel: #1c1d20;
+  --color-surface: #25252a;
+  --color-surface-hover: #2d2c31;
+  --color-border: #3a373d;
+
+  --color-text: #f1ebed;
+  --color-text-muted: #aaa4aa;
+  --color-text-subtle: #77727b;
+
+  --color-input: #161719;
+
+  --color-selection-strong: #873765;
+  --color-selection: #bd5688;
+
+  --color-interaction: #2895c5;
+  --color-interaction-light: #5bc2e8;
+
+  --color-danger: #9f293a;
   font:
     13px/1.4 system-ui,
     sans-serif;
@@ -139,7 +148,7 @@ button:disabled {
 input:focus-visible,
 select:focus-visible,
 button:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-interaction);
   outline-offset: 1px;
 }
 .visually-hidden {
@@ -178,20 +187,23 @@ button:focus-visible {
   font-size: 11px;
   padding: 0.15rem 0.4rem;
   min-height: 22px;
-  background: rgba(27, 33, 41, 0.85);
+  background: color-mix(in srgb, var(--color-interaction) 8%, rgba(28, 29, 32, 0.88));
   backdrop-filter: blur(4px);
-  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in srgb, var(--color-interaction) 40%, var(--color-border));
+  color: var(--color-interaction-light);
 }
 
 .camera-toolbar button:hover:enabled {
-  background: var(--color-surface-hover);
+  background: color-mix(in srgb, var(--color-interaction) 20%, var(--color-surface-hover));
+  border-color: var(--color-interaction);
+  color: var(--color-text);
 }
 
 .camera-toolbar button.active {
-  background: var(--color-accent);
-  color: #151a20;
+  background: var(--color-interaction);
+  color: var(--color-background);
   font-weight: 600;
-  border-color: var(--color-accent);
+  border-color: var(--color-interaction);
 }
 
 @media (max-width: 640px) {
