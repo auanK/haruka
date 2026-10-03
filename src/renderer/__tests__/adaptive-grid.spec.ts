@@ -120,6 +120,23 @@ describe('createAdaptiveGrid', () => {
     grid.dispose()
   })
 
+  it('preserves plaid phase world-anchoring and boundedness at large coordinates', () => {
+    const grid = createAdaptiveGrid()
+    const camera = new PerspectiveCamera(45, 4 / 3, 0.1, 1e10)
+    const focus = new Vector3(0.25, 0, 0.125)
+    camera.position.copy(focus).addScalar(5)
+    grid.update(camera, 800, 600, focus)
+    const uniforms = grid.shaderMaterial.uniforms
+    const plaid = uniforms.uPlaidPhase!.value.clone()
+    expect(plaid.x).toBeCloseTo(0.05)
+    expect(plaid.y).toBeCloseTo(0.025)
+    focus.set(1e9 + 0.25, 0, 1e6 + 0.125)
+    camera.position.copy(focus).addScalar(5)
+    grid.update(camera, 800, 600, focus)
+    expect(uniforms.uPlaidPhase!.value).toEqual(plaid)
+    grid.dispose()
+  })
+
   it('disposes all owned resources cleanly on dispose', () => {
     const grid = createAdaptiveGrid()
 

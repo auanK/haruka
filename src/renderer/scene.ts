@@ -14,6 +14,7 @@ import { createAdaptiveGrid, type AdaptiveGrid } from './adaptive-grid'
 import { createCoordinateLabels, type CoordinateLabels } from './coordinate-labels'
 import { applyHarukaMatrixToObject } from './three-matrix'
 import { createVertexLabels } from './vertex-labels'
+import { viewportTheme } from './viewport-theme'
 
 export type HarukaScene = {
   readonly scene: Scene
@@ -28,7 +29,7 @@ export type HarukaScene = {
 
 export const createHarukaScene = (): HarukaScene => {
   const scene = new Scene()
-  scene.background = new Color(0x111214)
+  scene.background = new Color(viewportTheme.background)
   const camera = new PerspectiveCamera(45, 1, 0.1, 1000)
   camera.position.set(9, 7, 12)
   camera.lookAt(0, 0, 0)

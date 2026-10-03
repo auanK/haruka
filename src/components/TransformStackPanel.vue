@@ -99,52 +99,58 @@ const addOperation = () =>
 <style scoped>
 .stack-panel {
   box-sizing: border-box;
-  /* min: ~7 monospace digits per matrix cell; max: spare width belongs to the viewport. */
-  flex: 0 0 clamp(18rem, 18vw, 22rem);
-  min-width: 0;
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 22rem;
+  max-width: max(22rem, min(28rem, 32vw));
+  height: 100%;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: 0.75rem;
+  padding: 0.5rem 0.6rem;
   border-left: 1px solid var(--color-border);
   border-top: 2px solid var(--color-selection);
   background: var(--color-panel);
 }
 
 h1 {
-  margin: 0 0 0.25rem;
-  font-size: 1rem;
+  margin: 0 0 0.2rem;
+  font-size: 0.95rem;
 }
 h2 {
   min-width: 0;
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 13px;
   font-weight: 600;
 }
 p {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.5rem;
   color: var(--color-text-muted);
-  font-size: 0.8rem;
-}
-form,
-.operation-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
+  font-size: 0.75rem;
 }
 form {
-  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
 }
 form select {
   flex: 1;
   min-width: 0;
+  height: 24px;
+  min-height: 24px;
+  padding: 0.1rem 0.3rem;
+  font-size: 11px;
   border-color: color-mix(in srgb, var(--color-interaction) 30%, var(--color-border));
 }
 form select:hover {
   border-color: var(--color-interaction);
 }
 form button {
-  width: 28px;
-  font-size: 1rem;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  font-size: 0.85rem;
   color: var(--color-interaction-light);
   border: 1px solid color-mix(in srgb, var(--color-interaction) 45%, var(--color-border));
   background: color-mix(in srgb, var(--color-interaction) 14%, var(--color-surface));
@@ -155,19 +161,35 @@ form button:hover:enabled {
   background: color-mix(in srgb, var(--color-interaction) 26%, var(--color-surface));
 }
 article {
-  margin-top: 0.5rem;
-  padding: 0.5rem;
+  position: relative;
+  margin-top: 0.4rem;
+  padding: 0.35rem 0.45rem;
   border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-uniform-red);
   border-radius: 3px;
   background: var(--color-surface);
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
 }
 .operation-controls {
-  margin-left: auto;
+  position: absolute;
+  top: 0.25rem;
+  right: 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px;
+  border-radius: 2px;
+  background: var(--color-surface);
+  z-index: 2;
 }
 .operation-controls button {
-  width: 24px;
-  min-height: 24px;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
   padding: 0;
+  font-size: 11px;
 }
 .operation-controls button:not(.remove):hover:enabled {
   border-color: var(--color-interaction);
@@ -182,6 +204,10 @@ article {
 @media (max-width: 640px) {
   .stack-panel {
     flex: 1;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: auto;
     border-top: 2px solid var(--color-selection);
     border-left: 0;
   }

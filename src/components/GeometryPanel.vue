@@ -44,15 +44,18 @@ defineProps<{
 
 <style scoped>
 .geometry-panel {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  width: 230px;
-  min-width: 210px;
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 14rem;
+  max-width: max(14rem, min(26rem, 30vw));
   height: 100%;
   border-right: 1px solid var(--color-border);
   border-top: 2px solid var(--color-interaction);
   background: var(--color-panel);
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 header {
@@ -71,7 +74,12 @@ h1 {
   padding: 0.5rem 0.65rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.65rem;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: auto;
 }
 
 .panel-content :deep(caption) {
@@ -81,9 +89,11 @@ h1 {
 
 .vertex-table {
   width: 100%;
+  max-width: none;
+  table-layout: auto;
   border-collapse: collapse;
   font-family: monospace;
-  font-size: 12px;
+  font-size: 12.5px;
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   background: var(--color-input);
@@ -92,14 +102,15 @@ h1 {
 }
 
 .vertex-table thead th {
-  padding: 0.2rem 0.3rem;
+  padding: 0.2rem 0.4rem;
   color: var(--color-interaction-light);
   font-family: system-ui, sans-serif;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   text-align: right;
   border-bottom: 1px solid color-mix(in srgb, var(--color-interaction) 25%, var(--color-border));
   background: color-mix(in srgb, var(--color-interaction) 10%, var(--color-surface));
+  white-space: nowrap;
 }
 
 .vertex-table thead th:first-child {
@@ -112,22 +123,25 @@ h1 {
 }
 
 .vertex-table tbody th {
-  padding: 0.12rem 0.3rem;
+  padding: 0.2rem 0.4rem;
   color: var(--color-interaction);
   font-weight: 600;
   text-align: left;
+  white-space: nowrap;
 }
 
 .vertex-table tbody td {
-  padding: 0.12rem 0.3rem;
+  padding: 0.2rem 0.4rem;
   text-align: right;
   white-space: nowrap;
 }
 
 @media (max-width: 640px) {
   .geometry-panel {
+    flex: 0 1 auto;
     width: 100%;
     min-width: 0;
+    max-width: none;
     height: auto;
     border-right: none;
     border-top: 2px solid var(--color-interaction);

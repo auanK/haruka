@@ -14,6 +14,7 @@ import {
   Vector3,
 } from 'three'
 import { chooseGridStep } from './grid-step'
+import { viewportTheme } from './viewport-theme'
 
 export type AdaptiveGrid = {
   readonly group: Group
@@ -47,10 +48,12 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uCenter;
   uniform vec2 uMinorPhase;
   uniform vec2 uMajorPhase;
+  uniform vec2 uPlaidPhase;
   uniform float uFadeRadius;
   uniform vec3 uGroundColor;
   uniform vec3 uGridColor;
   uniform vec3 uMajorColor;
+  uniform vec3 uPlaidColor;
   uniform vec3 uXAxisColor;
   uniform vec3 uZAxisColor;
 
@@ -78,6 +81,11 @@ const fragmentShader = /* glsl */ `
     vec2 majorGrid = abs(fract(majorCoord - 0.5) - 0.5) / (dPos / (uGridStep * 5.0));
     float majorLine = 1.0 - min(min(majorGrid.x, majorGrid.y), 1.0);
 
+    // Plaid accent grid lines (every 10 steps)
+    vec2 plaidCoord = pos / (uGridStep * 10.0) + uPlaidPhase;
+    vec2 plaidGrid = abs(fract(plaidCoord - 0.5) - 0.5) / (dPos / (uGridStep * 10.0));
+    float plaidLine = 1.0 - min(min(plaidGrid.x, plaidGrid.y), 1.0);
+
     // X Axis line (z = 0)
     float xAxis = 1.0 - min(abs(pos.y + uCenter.z) / dPos.y, 1.0);
 
@@ -94,6 +102,10 @@ const fragmentShader = /* glsl */ `
     if (majorLine > 0.05) {
       vec4 majorCol = vec4(uMajorColor, max(color.a, majorLine * 0.7 * alpha));
       color = mix(color, majorCol, majorLine);
+    }
+    if (plaidLine > 0.05) {
+      vec4 plaidCol = vec4(uPlaidColor, max(color.a, plaidLine * 0.85 * alpha));
+      color = mix(color, plaidCol, plaidLine);
     }
     if (xAxis > 0.05) {
       vec4 xCol = vec4(uXAxisColor, max(color.a, xAxis * 0.9 * alpha));
@@ -121,12 +133,14 @@ export const createAdaptiveGrid = (): AdaptiveGrid => {
     uCenter: { value: new Vector3(0, 0, 0) },
     uMinorPhase: { value: new Vector2() },
     uMajorPhase: { value: new Vector2() },
+    uPlaidPhase: { value: new Vector2() },
     uFadeRadius: { value: 50.0 },
-    uGroundColor: { value: new Color(0x181a1d) },
-    uGridColor: { value: new Color(0x29323d) },
-    uMajorColor: { value: new Color(0x435263) },
-    uXAxisColor: { value: new Color(0xdd6b70) },
-    uZAxisColor: { value: new Color(0x6e9ddf) },
+    uGroundColor: { value: new Color(viewportTheme.ground) },
+    uGridColor: { value: new Color(viewportTheme.gridMinor) },
+    uMajorColor: { value: new Color(viewportTheme.gridMajor) },
+    uPlaidColor: { value: new Color(viewportTheme.gridPlaid) },
+    uXAxisColor: { value: new Color(viewportTheme.axisX) },
+    uZAxisColor: { value: new Color(viewportTheme.axisZ) },
   }
 
   const planeGeometry = new PlaneGeometry(1, 1)
@@ -150,7 +164,7 @@ export const createAdaptiveGrid = (): AdaptiveGrid => {
   const yPositionAttr = new BufferAttribute(yPositions, 3)
   let lastYExtent = 50
   yAxisGeometry.setAttribute('position', yPositionAttr)
-  const yAxisMaterial = new LineBasicMaterial({ color: 0x80be89, depthWrite: false })
+  const yAxisMaterial = new LineBasicMaterial({ color: viewportTheme.axisY, depthWrite: false })
   const yAxisLine = new LineSegments(yAxisGeometry, yAxisMaterial)
   yAxisLine.name = 'adaptive-axis-y'
   group.add(yAxisLine)
@@ -189,6 +203,11 @@ export const createAdaptiveGrid = (): AdaptiveGrid => {
     uniforms.uMajorPhase.value.set(
       (target.x % majorStep) / majorStep,
       (target.z % majorStep) / majorStep,
+    )
+    const plaidStep = gridStep * 10
+    uniforms.uPlaidPhase.value.set(
+      (target.x % plaidStep) / plaidStep,
+      (target.z % plaidStep) / plaidStep,
     )
     uniforms.uFadeRadius.value = extent * 0.48
 

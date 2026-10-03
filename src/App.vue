@@ -76,89 +76,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-:root {
-  color-scheme: dark;
-  --color-background: #121315;
-  --color-panel: #1c1d20;
-  --color-surface: #25252a;
-  --color-surface-hover: #2d2c31;
-  --color-border: #3a373d;
-
-  --color-text: #f1ebed;
-  --color-text-muted: #aaa4aa;
-  --color-text-subtle: #77727b;
-
-  --color-input: #161719;
-
-  --color-selection-strong: #873765;
-  --color-selection: #bd5688;
-
-  --color-interaction: #2895c5;
-  --color-interaction-light: #5bc2e8;
-
-  --color-danger: #9f293a;
-  font:
-    13px/1.4 system-ui,
-    sans-serif;
-  color: var(--color-text);
-  background: var(--color-background);
-}
-
-html,
-body,
-#app,
 main {
   width: 100%;
   height: 100%;
   margin: 0;
-}
-
-main {
   display: flex;
   overflow: hidden;
-}
-
-input,
-select,
-button {
-  box-sizing: border-box;
-  min-height: 26px;
-  padding: 0.2rem 0.35rem;
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  color: var(--color-text);
-  font: inherit;
-}
-input,
-select {
-  background: var(--color-input);
-}
-button {
-  background: var(--color-surface);
-  cursor: pointer;
-}
-button:hover:enabled {
-  background: var(--color-surface-hover);
-}
-button:disabled {
-  color: var(--color-text-muted);
-  background: var(--color-panel);
-  cursor: default;
-}
-input:focus-visible,
-select:focus-visible,
-button:focus-visible {
-  outline: 2px solid var(--color-interaction);
-  outline-offset: 1px;
-}
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 
 .viewport {

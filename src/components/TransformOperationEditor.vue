@@ -166,75 +166,73 @@ const selectPlane = (plane: ReflectionPlane) => {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.3rem;
+  gap: 0.25rem;
   margin-bottom: 0.2rem;
+  min-height: 22px;
+  padding-inline-end: 76px;
 }
 
 .operation-editor {
-  /* x: absurd angles scroll inside the card; y: only sub-pixel table rounding, never content. */
-  overflow: auto hidden;
+  overflow-x: auto;
 }
 
 .notation {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
+  flex-wrap: wrap;
+  gap: 0.25rem;
   min-height: 18px;
   color: var(--color-selection);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
 }
 
 .axis-selector {
   display: flex;
-  gap: 2px;
+  gap: 1px;
 }
 
 .axis-selector button {
-  min-height: 18px;
+  min-height: 20px;
   padding: 0 5px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .operation-matrix {
-  width: 100%;
   margin-top: 0;
-  table-layout: fixed;
-  font-size: 11px;
-  line-height: 1.2;
 }
 
 .operation-matrix :deep(td) {
-  padding: 0.04rem;
   text-align: center;
-}
-
-.rotation-matrix {
-  table-layout: auto;
-}
-
-.rotation-matrix :deep(td) {
-  width: auto;
-  min-width: 2ch;
+  white-space: nowrap;
 }
 
 .cell-control,
 .angle-editor {
   box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  min-height: 0;
-  height: 16px;
-  padding: 0 1px;
+  min-height: 24px;
   border: 1px solid color-mix(in srgb, var(--color-selection) 15%, var(--color-border));
   border-radius: 2px;
   background: color-mix(in srgb, var(--color-selection) 16%, var(--color-input));
   color: inherit;
   font: inherit;
-  line-height: 14px;
+  line-height: 20px;
   text-align: center;
   white-space: nowrap;
+}
+
+input.cell-control {
+  field-sizing: content;
+  width: auto;
+  min-width: 5ch;
+  max-width: 24ch;
+  padding: 0 0.3rem;
+}
+
+button.cell-control {
+  width: 100%;
+  padding: 0 4px;
 }
 
 input {
@@ -272,18 +270,21 @@ input::-webkit-outer-spin-button {
 }
 
 .angle-editor {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  white-space: nowrap;
+  width: max-content;
+  padding: 0 4px;
 }
 
 .angle-editor input {
-  width: 7ch;
-  min-width: 0;
+  field-sizing: content;
+  width: auto;
+  min-width: 5ch;
+  max-width: 24ch;
   min-height: 0;
-  height: 14px;
-  padding: 0;
+  height: 20px;
+  padding: 0 0.35rem;
   border: 0;
   border-radius: 0;
   background: transparent;

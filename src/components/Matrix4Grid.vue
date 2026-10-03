@@ -42,12 +42,14 @@ const indices = [0, 1, 2, 3] as const
 <style scoped>
 table {
   width: 100%;
-  margin-top: 0.4rem;
+  max-width: none;
+  table-layout: auto;
+  margin-top: 0.3rem;
   border-collapse: collapse;
   border-inline: 1px solid var(--color-border);
   background: var(--color-input);
   font-family: monospace;
-  font-size: 12px;
+  font-size: 12.5px;
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
 }
@@ -56,13 +58,15 @@ caption {
   margin-bottom: 0.15rem;
   color: var(--color-text-muted);
   font-family: system-ui, sans-serif;
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
+  white-space: nowrap;
 }
 
 td {
-  width: 25%;
-  padding: 0.08rem 0.35rem;
+  min-width: 5ch;
+  padding: 0.2rem 0.4rem;
   text-align: right;
+  white-space: nowrap;
 }
 </style>
