@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import {
   addTransformOperation,
   updateTransformOperation,
@@ -10,11 +10,30 @@ import {
 } from '../app/transform-stack-state'
 import type { Transform } from '../domain'
 import { createDefaultTransform } from '../ui/transform-stack'
+import {
+  deriveDestinationIndex,
+  deriveRemainingInsertionSlot,
+  isInteractiveDragTarget,
+  mapRemainingSlotToOriginalSlot,
+} from '../ui/transform-stack-dnd'
 import TransformOperationEditor from './TransformOperationEditor.vue'
 
 const props = defineProps<{ state: TransformStackState }>()
 const emit = defineEmits<{ edit: [result: StackEditResult] }>()
 const selectedType = ref<Transform['type']>('translation')
+const dragState = ref<{ operationId: string; insertionSlot: number | null } | null>(null)
+let dragOrigin: EventTarget | null = null
+const indicatorSlot = computed(() => {
+  const drag = dragState.value
+  if (!drag || drag.insertionSlot === null) return null
+  const sourceIndex = props.state.operations.findIndex(({ id }) => id === drag.operationId)
+  const destination = deriveDestinationIndex(
+    sourceIndex,
+    drag.insertionSlot,
+    props.state.operations.length,
+  )
+  return destination === undefined || destination === sourceIndex ? null : drag.insertionSlot
+})
 let nextOperationId = 1
 const transformTypes = {
   translation: 'Translation',
@@ -32,10 +51,85 @@ const addOperation = () =>
       transform: createDefaultTransform(selectedType.value),
     }),
   )
+
+const startDrag = (operationId: string, event: DragEvent) => {
+  // Native dragstart can target the draggable article instead of the pressed control.
+  const interactive = isInteractiveDragTarget(event.target) || isInteractiveDragTarget(dragOrigin)
+  dragOrigin = null
+  if (interactive) {
+    event.preventDefault()
+    dragState.value = null
+    return
+  }
+  dragState.value = { operationId, insertionSlot: null }
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', operationId)
+  }
+}
+
+const recordDragOrigin = (event: MouseEvent) => {
+  dragOrigin = event.target
+}
+
+const dragOver = (event: DragEvent) => {
+  if (!dragState.value) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  const drag = dragState.value
+  const sourceIndex = props.state.operations.findIndex(({ id }) => id === drag.operationId)
+  const cards = Array.from((event.currentTarget as HTMLElement).querySelectorAll('article'))
+    .filter((card) => card.dataset.operationId !== drag.operationId)
+    .map((card) => {
+      const bounds = card.getBoundingClientRect()
+      return { top: bounds.top, bottom: bounds.top + bounds.height }
+    })
+  const currentSlot =
+    drag.insertionSlot === null
+      ? undefined
+      : deriveDestinationIndex(sourceIndex, drag.insertionSlot, props.state.operations.length)
+  const remainingSlot = deriveRemainingInsertionSlot(cards, event.clientY, sourceIndex, currentSlot)
+  drag.insertionSlot =
+    remainingSlot === undefined
+      ? null
+      : (mapRemainingSlotToOriginalSlot(
+          sourceIndex,
+          remainingSlot,
+          props.state.operations.length,
+        ) ?? null)
+}
+
+const endDrag = () => {
+  dragState.value = null
+  dragOrigin = null
+}
+
+const dropOperation = (event: DragEvent) => {
+  const drag = dragState.value
+  endDrag()
+  if (!drag) return
+  event.preventDefault()
+  if (drag.insertionSlot === null) return
+  const sourceIndex = props.state.operations.findIndex(({ id }) => id === drag.operationId)
+  const destinationIndex = deriveDestinationIndex(
+    sourceIndex,
+    drag.insertionSlot,
+    props.state.operations.length,
+  )
+  if (destinationIndex === undefined || destinationIndex === sourceIndex) return
+  emit('edit', moveTransformOperation(props.state, drag.operationId, destinationIndex))
+}
 </script>
 
 <template>
-  <aside class="stack-panel" aria-labelledby="stack-title">
+  <aside
+    class="stack-panel"
+    aria-labelledby="stack-title"
+    @dragover="dragOver"
+    @drop="dropOperation"
+    @dragend="endDrag"
+    @mouseup.capture="dragOrigin = null"
+  >
     <h1 id="stack-title">Transformation Stack</h1>
     <p>
       Matrix product: top → bottom.<br />
@@ -51,51 +145,67 @@ const addOperation = () =>
       <button type="submit" aria-label="Add Transform" title="Add Transform">+</button>
     </form>
     <p v-if="state.operations.length === 0">No transformations.</p>
-    <article
-      v-for="(operation, index) in state.operations"
-      :key="operation.id"
-      :data-operation-id="operation.id"
-    >
-      <TransformOperationEditor
-        :operation="operation"
-        @update-transform="emit('edit', updateTransformOperation(state, operation.id, $event))"
+    <template v-for="(operation, index) in state.operations" :key="operation.id">
+      <div
+        v-if="indicatorSlot === index"
+        class="drop-indicator"
+        :data-insertion-slot="index"
+        aria-hidden="true"
+      />
+      <article
+        :data-operation-id="operation.id"
+        :class="{ dragging: dragState?.operationId === operation.id }"
+        draggable="true"
+        @mousedown.capture="recordDragOrigin"
+        @dragstart="startDrag(operation.id, $event)"
       >
-        <template #title>
-          <h2>{{ transformTypes[operation.transform.type] }}</h2>
-        </template>
-        <template #controls>
-          <div class="operation-controls">
-            <button
-              type="button"
-              aria-label="Move up"
-              title="Move up"
-              :disabled="index === 0"
-              @click="emit('edit', moveTransformOperation(state, operation.id, index - 1))"
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              aria-label="Move down"
-              title="Move down"
-              :disabled="index === state.operations.length - 1"
-              @click="emit('edit', moveTransformOperation(state, operation.id, index + 1))"
-            >
-              ↓
-            </button>
-            <button
-              class="remove"
-              type="button"
-              aria-label="Remove"
-              title="Remove"
-              @click="emit('edit', removeTransformOperation(state, operation.id))"
-            >
-              ×
-            </button>
-          </div>
-        </template>
-      </TransformOperationEditor>
-    </article>
+        <TransformOperationEditor
+          :operation="operation"
+          @update-transform="emit('edit', updateTransformOperation(state, operation.id, $event))"
+        >
+          <template #title>
+            <h2>{{ transformTypes[operation.transform.type] }}</h2>
+          </template>
+          <template #controls>
+            <div class="operation-controls">
+              <button
+                type="button"
+                aria-label="Move up"
+                title="Move up"
+                :disabled="index === 0"
+                @click="emit('edit', moveTransformOperation(state, operation.id, index - 1))"
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                aria-label="Move down"
+                title="Move down"
+                :disabled="index === state.operations.length - 1"
+                @click="emit('edit', moveTransformOperation(state, operation.id, index + 1))"
+              >
+                ↓
+              </button>
+              <button
+                class="remove"
+                type="button"
+                aria-label="Remove"
+                title="Remove"
+                @click="emit('edit', removeTransformOperation(state, operation.id))"
+              >
+                ×
+              </button>
+            </div>
+          </template>
+        </TransformOperationEditor>
+      </article>
+    </template>
+    <div
+      v-if="indicatorSlot === state.operations.length"
+      class="drop-indicator"
+      :data-insertion-slot="state.operations.length"
+      aria-hidden="true"
+    />
   </aside>
 </template>
 
@@ -174,6 +284,12 @@ article {
   box-sizing: border-box;
   min-width: 0;
   width: 100%;
+  cursor: grab;
+}
+article:has(
+  :is(input, select, button, textarea, a, label, [contenteditable], [data-no-drag]):hover
+) {
+  cursor: auto;
 }
 .operation-controls {
   position: absolute;
@@ -193,6 +309,30 @@ article {
   min-height: 20px;
   padding: 0;
   font-size: 11px;
+}
+.dragging {
+  cursor: grabbing;
+  background: color-mix(in srgb, var(--color-selection) 10%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-selection) 35%, var(--color-border));
+  border-left-color: var(--color-uniform-red);
+}
+.drop-indicator {
+  position: relative;
+  height: 2px;
+  margin-top: 0.4rem;
+  background: var(--color-interaction);
+  pointer-events: none;
+}
+.drop-indicator::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-interaction);
+  transform: translateY(-50%);
 }
 .operation-controls button:not(.remove):hover:enabled {
   border-color: var(--color-interaction);

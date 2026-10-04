@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { Matrix4, Vector3 } from 'three'
 import type { CubeVertex } from '../app/didactic-cube'
+import { transformCubeVertices } from '../app/didactic-cube'
 import {
   composeTransforms,
   identity,
@@ -81,7 +82,224 @@ const add = async (type: string) => {
   await wrapper.get('form').trigger('submit')
 }
 
+const cardIds = () => wrapper.findAll('article').map((card) => card.attributes('data-operation-id'))
+const stackPanel = () => wrapper.getComponent(TransformStackPanel)
+const viewportSync = () => vi.mocked(mountHarukaViewport).mock.results[0]!.value.sync
+const startDrag = async (id: string, surface = 'h2') => {
+  wrapper.findAll('article').forEach((card, index) => {
+    vi.spyOn(card.element, 'getBoundingClientRect').mockReturnValue({
+      top: 200 + index * 100,
+      height: 100,
+    } as DOMRect)
+  })
+  const dataTransfer = {
+    effectAllowed: 'uninitialized',
+    setData: vi.fn<(format: string, data: string) => void>(),
+  }
+  await wrapper.get(`article[data-operation-id="${id}"] ${surface}`).trigger('dragstart', {
+    dataTransfer,
+  })
+  return dataTransfer
+}
+const hoverCard = async (id: string, side: 'before' | 'after') => {
+  const index = cardIds().indexOf(id)
+  await wrapper.get(`article[data-operation-id="${id}"]`).trigger('dragover', {
+    clientY: 200 + index * 100 + (side === 'before' ? 10 : 90),
+  })
+}
+const drop = () => wrapper.get('.stack-panel').trigger('drop')
+const expectDragCleanedUp = () => {
+  expect(wrapper.find('.dragging').exists()).toBe(false)
+  expect(wrapper.find('.drop-indicator').exists()).toBe(false)
+}
+
 describe('transformation stack integration', () => {
+  it('only changes the insertion indicator during dragover, preserving state, matrix, vertices and renderer', async () => {
+    wrapper = mount(App)
+    for (const type of ['translation', 'rotation', 'scale']) await add(type)
+    const state = stackPanel().props('state')
+    const results = expectResultsInSync()
+    const matrix = target().matrix.clone()
+    const syncCount = vi.mocked(viewportSync()).mock.calls.length
+    const editCount = stackPanel().emitted('edit')!.length
+
+    const dataTransfer = await startDrag('op-2')
+    expect(dataTransfer.effectAllowed).toBe('move')
+    expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', 'op-2')
+    expect(wrapper.get('article[data-operation-id="op-2"]').attributes('draggable')).toBe('true')
+    expect(wrapper.get('article[data-operation-id="op-2"]').classes()).toContain('dragging')
+    expect(wrapper.findAll('article.dragging')).toHaveLength(1)
+    await hoverCard('op-1', 'after')
+    expect(wrapper.get('.drop-indicator').attributes('data-insertion-slot')).toBe('3')
+    await hoverCard('op-3', 'before')
+    expect(wrapper.get('.drop-indicator').attributes('data-insertion-slot')).toBe('0')
+
+    expect(stackPanel().props('state')).toBe(state)
+    expect(cardIds()).toEqual(['op-3', 'op-2', 'op-1'])
+    expect(expectResultsInSync().matrix).toBe(results.matrix)
+    expect(expectResultsInSync().vertices).toBe(results.vertices)
+    expect(target().matrix).toEqual(matrix)
+    expect(vi.mocked(viewportSync())).toHaveBeenCalledTimes(syncCount)
+    expect(stackPanel().emitted('edit')).toHaveLength(editCount)
+  })
+
+  it('drops T before R and synchronizes non-commutative DOM, state, Final Matrix, vertices and Three results', async () => {
+    wrapper = mount(App)
+    await add('translation')
+    await wrapper.get('article input[name="x"]').setValue('2')
+    await add('rotation')
+    await wrapper
+      .get('article[data-operation-id="op-2"] td[data-index="0"] button')
+      .trigger('click')
+    await wrapper.get('article[data-operation-id="op-2"] input[name="angle"]').setValue('90')
+    const translation = toMatrix({ type: 'translation', x: 2, y: 0, z: 0 })
+    const rotation = toMatrix({ type: 'rotation', axis: 'z', angle: Math.PI / 2 })
+    const before = expectResultsInSync()
+    expect(cardIds()).toEqual(['op-2', 'op-1'])
+    expect(before.matrix).toEqual(multiply(rotation, translation))
+    const origin = new Vector3().applyMatrix4(target().matrix)
+    expect(origin.x).toBeCloseTo(0, 12)
+    expect(origin.y).toBeCloseTo(2, 12)
+    expect(origin.z).toBe(0)
+
+    await startDrag('op-1', 'h2')
+    await wrapper.get('article[data-operation-id="op-2"]').trigger('dragover', { clientY: 270 })
+    expect(wrapper.get('.drop-indicator').attributes('data-insertion-slot')).toBe('0')
+    await drop()
+
+    expect(cardIds()).toEqual(['op-1', 'op-2'])
+    expect(
+      stackPanel()
+        .props('state')
+        .operations.map(({ id }) => id),
+    ).toEqual(cardIds())
+    const after = expectResultsInSync()
+    const expected = multiply(translation, rotation)
+    expect(after.matrix).toEqual(expected)
+    expect(after.vertices).toEqual(transformCubeVertices(expected))
+    for (const vertex of after.vertices) {
+      expect(
+        wrapper
+          .get(`tr[data-vertex-id="${vertex.id}"]`)
+          .findAll('td')
+          .map((cell) => cell.text()),
+      ).toEqual(vertex.point.map(formatMatrixValue))
+    }
+    expect(new Vector3().applyMatrix4(target().matrix).toArray()).toEqual([2, 0, 0])
+    expectDragCleanedUp()
+  })
+
+  it('drops T after S in T, R, S using the final destination index', async () => {
+    wrapper = mount(App)
+    for (const type of ['scale', 'rotation', 'translation']) await add(type)
+    const state = stackPanel().props('state')
+    await startDrag('op-3')
+    await hoverCard('op-1', 'after')
+    expect(wrapper.get('.drop-indicator').attributes('data-insertion-slot')).toBe('3')
+    await drop()
+
+    expect(cardIds()).toEqual(['op-2', 'op-1', 'op-3'])
+    expect(stackPanel().props('state').operations).toEqual([
+      state.operations[1],
+      state.operations[2],
+      state.operations[0],
+    ])
+    expectResultsInSync()
+    expectDragCleanedUp()
+  })
+
+  it.each(['before', 'after'] as const)(
+    'treats dropping immediately %s the source as a no-op',
+    async (side) => {
+      wrapper = mount(App)
+      for (const type of ['translation', 'rotation', 'scale']) await add(type)
+      const state = stackPanel().props('state')
+      const syncCount = vi.mocked(viewportSync()).mock.calls.length
+      const editCount = stackPanel().emitted('edit')!.length
+      await startDrag('op-2')
+      await hoverCard('op-2', side)
+      expect(wrapper.find('.drop-indicator').exists()).toBe(false)
+      await drop()
+
+      expect(stackPanel().props('state')).toBe(state)
+      expect(cardIds()).toEqual(['op-3', 'op-2', 'op-1'])
+      expect(stackPanel().emitted('edit')).toHaveLength(editCount)
+      expect(vi.mocked(viewportSync())).toHaveBeenCalledTimes(syncCount)
+      expectDragCleanedUp()
+    },
+  )
+
+  it('cleans up cancellation through dragend and allows the next drag to succeed', async () => {
+    wrapper = mount(App)
+    for (const type of ['translation', 'rotation', 'scale']) await add(type)
+    const state = stackPanel().props('state')
+    const syncCount = vi.mocked(viewportSync()).mock.calls.length
+    await startDrag('op-1')
+    await hoverCard('op-3', 'before')
+    expect(wrapper.find('.drop-indicator').exists()).toBe(true)
+    await wrapper.get('article[data-operation-id="op-1"]').trigger('dragend')
+
+    expect(stackPanel().props('state')).toBe(state)
+    expect(cardIds()).toEqual(['op-3', 'op-2', 'op-1'])
+    expect(vi.mocked(viewportSync())).toHaveBeenCalledTimes(syncCount)
+    expectDragCleanedUp()
+    await startDrag('op-1')
+    await hoverCard('op-3', 'before')
+    await drop()
+    expect(cardIds()).toEqual(['op-1', 'op-3', 'op-2'])
+    expect(vi.mocked(viewportSync())).toHaveBeenCalledTimes(syncCount + 1)
+    expectResultsInSync()
+    expectDragCleanedUp()
+  })
+
+  it('accepts the panel space above the first card and below the last as extreme slots', async () => {
+    wrapper = mount(App)
+    for (const type of ['translation', 'rotation', 'scale']) await add(type)
+    await startDrag('op-1')
+    await wrapper.get('.stack-panel').trigger('dragover', { clientY: 100 })
+    expect(wrapper.get('.drop-indicator').attributes('data-insertion-slot')).toBe('0')
+    await drop()
+    expect(cardIds()).toEqual(['op-1', 'op-3', 'op-2'])
+    await startDrag('op-1')
+    await wrapper.get('.stack-panel').trigger('dragover', { clientY: 600 })
+    expect(wrapper.get('.drop-indicator').attributes('data-insertion-slot')).toBe('3')
+    await drop()
+    expect(cardIds()).toEqual(['op-3', 'op-2', 'op-1'])
+    expectResultsInSync()
+  })
+
+  it('excludes editor controls from reorder and leaves the same card header draggable', async () => {
+    wrapper = mount(App)
+    for (const type of ['translation', 'rotation', 'scale', 'shear', 'reflection']) await add(type)
+    await wrapper
+      .get('article[data-operation-id="op-2"] td[data-index="0"] button')
+      .trigger('click')
+    await wrapper.get('article[data-operation-id="op-2"] input[name="angle"]').setValue('37.25')
+    await wrapper.get('article[data-operation-id="op-1"] input[name="x"]').setValue('0.0100')
+    const state = stackPanel().props('state')
+    const syncCount = vi.mocked(viewportSync()).mock.calls.length
+    expect(wrapper.findAll('[draggable="true"]')).toHaveLength(5)
+    for (const control of wrapper.findAll('input, select, .axis-selector button, .cell-control')) {
+      expect(control.attributes('draggable')).toBeUndefined()
+      await control.trigger('dragstart', { dataTransfer: { getData: () => 'op-1' } })
+      await wrapper.get('.stack-panel').trigger('dragover', { clientY: 0 })
+      await drop()
+      expectDragCleanedUp()
+    }
+    expect(stackPanel().props('state')).toBe(state)
+    expect(vi.mocked(viewportSync())).toHaveBeenCalledTimes(syncCount)
+    expect(
+      (wrapper.get('article[data-operation-id="op-1"] input[name="x"]').element as HTMLInputElement)
+        .value,
+    ).toBe('0.0100')
+    await startDrag('op-1', 'h2')
+    await hoverCard('op-2', 'before')
+    await drop()
+    expect(cardIds()).toEqual(['op-5', 'op-4', 'op-3', 'op-1', 'op-2'])
+    expectResultsInSync()
+    expectDragCleanedUp()
+  })
+
   it('shows identity and the eight base vertices for an empty stack and sends the same results to the renderer', () => {
     wrapper = mount(App)
 

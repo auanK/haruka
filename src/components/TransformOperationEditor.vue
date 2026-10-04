@@ -184,7 +184,7 @@ const selectPlane = (plane: ReflectionPlane) => {
   gap: 0.25rem;
   margin-bottom: 0.2rem;
   min-height: 22px;
-  padding-inline-end: 76px;
+  padding-inline-end: 98px;
 }
 
 .operation-editor {
