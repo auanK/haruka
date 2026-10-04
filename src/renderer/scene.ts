@@ -1,9 +1,14 @@
 import {
+  AmbientLight,
   BoxGeometry,
   Color,
+  DirectionalLight,
+  EdgesGeometry,
   Group,
+  LineBasicMaterial,
+  LineSegments,
   Mesh,
-  MeshNormalMaterial,
+  MeshLambertMaterial,
   PerspectiveCamera,
   Scene,
   Vector3,
@@ -36,9 +41,28 @@ export const createHarukaScene = (): HarukaScene => {
 
   const target = new Group()
   applyHarukaMatrixToObject(target, identity())
-  const material = new MeshNormalMaterial()
-  const body = new Mesh(new BoxGeometry(1, 1, 1), material)
-  target.add(body)
+  const materials = [0x29272d, 0x85838b, 0xd0ced3].map(
+    (color) =>
+      new MeshLambertMaterial({
+        color,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
+      }),
+  )
+  // ±X, ±Y, ±Z: opposite faces differ; the initial +X/+Y/+Z view shows three tones.
+  const body = new Mesh(
+    new BoxGeometry(1, 1, 1),
+    [0, 2, 2, 1, 1, 0].map((index) => materials[index]!),
+  )
+  const edgeMaterial = new LineBasicMaterial({ color: 0xa8a6af })
+  const edges = new LineSegments(new EdgesGeometry(body.geometry), edgeMaterial)
+  target.add(body, edges)
+
+  const ambientLight = new AmbientLight(0xffffff, 2.2)
+  const directionalLight = new DirectionalLight(0xffffff, 1.2)
+  directionalLight.position.set(4, 6, 8)
+  scene.add(ambientLight, directionalLight)
 
   const grid = createAdaptiveGrid()
   const vertexLabels = createVertexLabels()
@@ -64,7 +88,9 @@ export const createHarukaScene = (): HarukaScene => {
       coordinateLabels.dispose()
       grid.dispose()
       body.geometry.dispose()
-      material.dispose()
+      materials.forEach((material) => material.dispose())
+      edges.geometry.dispose()
+      edgeMaterial.dispose()
       scene.clear()
     },
   }
