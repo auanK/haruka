@@ -25,6 +25,28 @@ export const degreesToRadians = (degrees: number): number => degrees * (Math.PI 
 
 export const radiansToDegrees = (radians: number): number => radians * (180 / Math.PI)
 
-export const formatMatrixValue = (value: number): string => String(Number(value.toFixed(4)))
+export type DisplayPrecision = 0 | 1 | 2 | 3 | 4
+
+export const formatDisplayNumber = (value: number, precision: DisplayPrecision = 4): string => {
+  const p = typeof precision === 'number' && precision >= 0 && precision <= 4 ? precision : 4
+  const rounded = Number(value.toFixed(p))
+  return Object.is(rounded, -0) || rounded === 0 ? '0' : String(rounded)
+}
+
+export const formatMatrixValue = (
+  value: number,
+  precision?: DisplayPrecision | number,
+  ...rest: unknown[]
+): string => {
+  if (rest.length > 0 && Array.isArray(rest[0])) {
+    return formatDisplayNumber(value, 4)
+  }
+  return formatDisplayNumber(
+    value,
+    typeof precision === 'number' && precision >= 0 && precision <= 4
+      ? (precision as DisplayPrecision)
+      : 4,
+  )
+}
 
 export const formatNumber = formatMatrixValue

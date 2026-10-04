@@ -2,13 +2,14 @@
 import { computed, ref } from 'vue'
 import {
   addTransformOperation,
+  createOperationId,
   updateTransformOperation,
   removeTransformOperation,
   moveTransformOperation,
   type StackEditResult,
   type TransformStackState,
 } from '../app/transform-stack-state'
-import type { Transform } from '../domain'
+import { toMatrix, type Transform } from '../domain'
 import { createDefaultTransform } from '../ui/transform-stack'
 import {
   deriveDestinationIndex,
@@ -16,9 +17,21 @@ import {
   isInteractiveDragTarget,
   mapRemainingSlotToOriginalSlot,
 } from '../ui/transform-stack-dnd'
+import Matrix4Grid from './Matrix4Grid.vue'
 import TransformOperationEditor from './TransformOperationEditor.vue'
+import type { DisplayPrecision } from '../ui/transform-stack'
 
-const props = defineProps<{ state: TransformStackState }>()
+const props = withDefaults(
+  defineProps<{
+    state: TransformStackState
+    draftTransform?: Transform | null
+    precision?: DisplayPrecision
+  }>(),
+  {
+    draftTransform: null,
+    precision: 4,
+  },
+)
 const emit = defineEmits<{ edit: [result: StackEditResult] }>()
 const selectedType = ref<Transform['type']>('translation')
 const dragState = ref<{ operationId: string; insertionSlot: number | null } | null>(null)
@@ -34,7 +47,6 @@ const indicatorSlot = computed(() => {
   )
   return destination === undefined || destination === sourceIndex ? null : drag.insertionSlot
 })
-let nextOperationId = 1
 const transformTypes = {
   translation: 'Translation',
   rotation: 'Rotation',
@@ -47,7 +59,7 @@ const addOperation = () =>
   emit(
     'edit',
     addTransformOperation(props.state, {
-      id: `op-${nextOperationId++}`,
+      id: createOperationId(props.state),
       transform: createDefaultTransform(selectedType.value),
     }),
   )
@@ -144,7 +156,24 @@ const dropOperation = (event: DragEvent) => {
       </select>
       <button type="submit" aria-label="Add Transform" title="Add Transform">+</button>
     </form>
-    <p v-if="state.operations.length === 0">No transformations.</p>
+    <aside v-if="draftTransform" class="draft-card" aria-label="Draft transformation preview">
+      <div class="draft-card-header">
+        <div class="draft-title-group">
+          <h2>{{ transformTypes[draftTransform.type] }}</h2>
+          <span class="notation">{{
+            draftTransform.type === 'translation' ? 'T(x, y, z)' : ''
+          }}</span>
+        </div>
+        <span class="draft-badge">Preview</span>
+      </div>
+      <Matrix4Grid
+        :matrix="toMatrix(draftTransform)"
+        :precision="precision"
+        caption=""
+        class="operation-matrix"
+      />
+    </aside>
+    <p v-if="state.operations.length === 0 && !draftTransform">No transformations.</p>
     <template v-for="(operation, index) in state.operations" :key="operation.id">
       <div
         v-if="indicatorSlot === index"
@@ -161,6 +190,7 @@ const dropOperation = (event: DragEvent) => {
       >
         <TransformOperationEditor
           :operation="operation"
+          :precision="precision"
           @update-transform="emit('edit', updateTransformOperation(state, operation.id, $event))"
         >
           <template #title>
@@ -343,6 +373,47 @@ article:has(
 }
 .remove:hover:enabled {
   border-color: var(--color-danger);
+}
+.draft-card {
+  box-sizing: border-box;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  border: 1px dashed var(--color-interaction);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-interaction) 8%, var(--color-surface));
+}
+.draft-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.draft-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.draft-title-group h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.draft-title-group .notation {
+  color: var(--color-selection);
+  font-size: 12px;
+  font-weight: 500;
+}
+.draft-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--color-interaction-light);
+  background: color-mix(in srgb, var(--color-interaction) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-interaction) 40%, transparent);
 }
 @media (max-width: 640px) {
   .stack-panel {

@@ -153,4 +153,33 @@ describe('createAdaptiveGrid', () => {
     expect(yMatSpy).toHaveBeenCalledOnce()
     expect(grid.group.children).toHaveLength(0)
   })
+
+  it('orients the reference plane mesh and updates axis uniforms according to activePlane', () => {
+    const grid = createAdaptiveGrid()
+    const camera = new PerspectiveCamera(45, 1, 0.1, 500)
+    camera.position.set(10, 10, 10)
+    const target = new Vector3(2, 3, 4)
+
+    const groundMesh = grid.group.children.find((child) => child instanceof Mesh) as Mesh
+
+    // Default or XZ plane (Lock Y or free)
+    grid.update(camera, 800, 600, target, 'xz')
+    expect(groundMesh.position.toArray()).toEqual([2, 0, 4])
+    expect(groundMesh.rotation.x).toBeCloseTo(-Math.PI / 2)
+    expect(groundMesh.rotation.y).toBeCloseTo(0)
+
+    // YZ plane (Lock X)
+    grid.update(camera, 800, 600, target, 'yz')
+    expect(groundMesh.position.toArray()).toEqual([0, 3, 4])
+    expect(groundMesh.rotation.x).toBeCloseTo(0)
+    expect(groundMesh.rotation.y).toBeCloseTo(Math.PI / 2)
+
+    // XY plane (Lock Z)
+    grid.update(camera, 800, 600, target, 'xy')
+    expect(groundMesh.position.toArray()).toEqual([2, 3, 0])
+    expect(groundMesh.rotation.x).toBeCloseTo(0)
+    expect(groundMesh.rotation.y).toBeCloseTo(0)
+
+    grid.dispose()
+  })
 })

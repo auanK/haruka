@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import type { Matrix4 } from '../domain'
-import { formatMatrixValue } from '../ui/transform-stack'
+import { formatMatrixValue, type DisplayPrecision } from '../ui/transform-stack'
 
 withDefaults(
   defineProps<{
     matrix: Matrix4
     caption?: string
+    precision?: DisplayPrecision
   }>(),
   {
     caption: 'Matrix',
+    precision: 4,
   },
 )
 const indices = [0, 1, 2, 3] as const
@@ -31,7 +33,7 @@ const indices = [0, 1, 2, 3] as const
           :data-index="row * 4 + column"
         >
           <slot name="cell" :index="row * 4 + column" :value="matrix[row * 4 + column]!">
-            {{ formatMatrixValue(matrix[row * 4 + column]!) }}
+            {{ formatMatrixValue(matrix[row * 4 + column]!, precision) }}
           </slot>
         </td>
       </tr>
@@ -43,7 +45,7 @@ const indices = [0, 1, 2, 3] as const
 table {
   width: 100%;
   max-width: none;
-  table-layout: auto;
+  table-layout: fixed;
   margin-top: 0.3rem;
   border-collapse: collapse;
   border-inline: 1px solid var(--color-border);
@@ -64,7 +66,7 @@ caption {
 }
 
 td {
-  min-width: 5ch;
+  min-width: 8ch;
   padding: 0.2rem 0.4rem;
   text-align: right;
   white-space: nowrap;

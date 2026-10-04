@@ -26,7 +26,9 @@ describe('GeometryPanel', () => {
     const matrixGrid = wrapper.getComponent(Matrix4Grid)
     expect(matrixGrid.props('matrix')).toBe(finalMatrix)
     expect(matrixGrid.get('caption').text()).toBe('Final Matrix')
-    expect(wrapper.find('input, select, button, [contenteditable]').exists()).toBe(false)
+    const precisionSelect = wrapper.get('select[aria-label="Displayed decimal places"]')
+    expect((precisionSelect.element as HTMLSelectElement).value).toBe('4')
+    expect(wrapper.find('input, button, [contenteditable]').exists()).toBe(false)
     expect(wrapper.emitted()).toEqual({})
   })
 
@@ -60,5 +62,37 @@ describe('GeometryPanel', () => {
     expect(point[0]).toBe(Math.cos(Math.PI / 2))
     expect(Object.is(point[1], -0)).toBe(true)
     expect(point[2]).toBe(1.234567)
+  })
+
+  it('controls display precision and emits updates with maximum 4 places (no full option)', async () => {
+    const point = Object.freeze([1.234567, -2.876543, 0] as const)
+    const vertices = Object.freeze([{ id: 'V1' as const, point }])
+    const wrapper = mount(GeometryPanel, {
+      props: { vertices, finalMatrix: identity(), precision: 4 },
+    })
+    const select = wrapper.get('select[aria-label="Displayed decimal places"]')
+    const options = select.findAll('option').map((o) => o.text())
+    expect(options).toEqual(['0', '1', '2', '3', '4'])
+    expect(options).not.toContain('Full')
+
+    expect((select.element as HTMLSelectElement).value).toBe('4')
+    expect(wrapper.findAll('.vertex-table tbody td').map((c) => c.text())).toEqual([
+      '1.2346',
+      '-2.8765',
+      '0',
+    ])
+
+    await select.setValue('2')
+    expect(wrapper.emitted('update:precision')?.[0]).toEqual([2])
+
+    await wrapper.setProps({ precision: 2 })
+    expect(wrapper.findAll('.vertex-table tbody td').map((c) => c.text())).toEqual([
+      '1.23',
+      '-2.88',
+      '0',
+    ])
+
+    await select.setValue('0')
+    expect(wrapper.emitted('update:precision')?.[1]).toEqual([0])
   })
 })

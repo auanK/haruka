@@ -5,10 +5,10 @@ import {
   Line,
   LineBasicMaterial,
   OrthographicCamera,
-  PerspectiveCamera,
   Quaternion,
   Scene,
   Sprite,
+  type Camera,
 } from 'three'
 import { createTextSprite } from './text-sprite'
 
@@ -16,7 +16,7 @@ export type OrientationGizmo = {
   readonly scene: Scene
   readonly camera: OrthographicCamera
   readonly group: Group
-  readonly updateOrientation: (camera: PerspectiveCamera) => void
+  readonly updateOrientation: (camera: Camera) => void
   readonly dispose: () => void
 }
 
@@ -58,7 +58,7 @@ export const createOrientationGizmo = (): OrientationGizmo => {
       direction[1] * labelDistance,
       direction[2] * labelDistance,
     )
-    label.scale.set(0.35, 0.175, 1)
+    label.scale.set(0.52, 0.26, 1)
 
     group.add(line, label)
   }
@@ -69,7 +69,7 @@ export const createOrientationGizmo = (): OrientationGizmo => {
     scene,
     camera,
     group,
-    updateOrientation: (mainCamera: PerspectiveCamera) => {
+    updateOrientation: (mainCamera: Camera) => {
       mainCamera.getWorldQuaternion(cameraQuaternion)
       group.quaternion.copy(cameraQuaternion.invert())
     },

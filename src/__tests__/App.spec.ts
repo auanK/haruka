@@ -22,10 +22,12 @@ import { mountHarukaViewport, type HarukaViewport } from '../renderer/viewport'
 vi.mock('../renderer/viewport', async () => {
   const { Group } = await import('three')
   return {
-    mountHarukaViewport: vi.fn<(container: HTMLElement) => HarukaViewport>(() => {
+    mountHarukaViewport: vi.fn<(container: HTMLElement) => HarukaViewport>((container) => {
       const target = new Group()
       target.matrixAutoUpdate = false
       target.matrix.makeTranslation(99, 99, 99)
+      const canvas = document.createElement('canvas')
+      container.append(canvas)
       const updateVertexLabels = vi.fn<(vertices: readonly CubeVertex[]) => void>()
       const locateCube = vi.fn<() => void>()
       const sync = vi.fn<
@@ -47,7 +49,22 @@ vi.mock('../renderer/viewport', async () => {
         updateVertexLabels,
         locateCube,
         sync,
-        dispose: vi.fn<() => void>(),
+        // Client x < 100 hits the cube; deltas are pixel offsets / 100 on X, Y and X+Y.
+        pick: vi.fn<HarukaViewport['pick']>((x) => x < 100),
+        dragDelta: vi.fn<HarukaViewport['dragDelta']>(
+          ([sx, sy], [x, y], _pivot, _axis, lockedAxis) => {
+            const dx = (x - sx) / 100
+            const dy = (y - sy) / 100
+            const dz = (x - sx + y - sy) / 100
+            if (lockedAxis === 'x') return [0, dy, dz]
+            if (lockedAxis === 'y') return [dx, 0, dz]
+            if (lockedAxis === 'z') return [dx, dy, 0]
+            return [dx, dy, dz]
+          },
+        ),
+        setManipulation: vi.fn<HarukaViewport['setManipulation']>(),
+        setViewAxisLock: vi.fn<HarukaViewport['setViewAxisLock']>(),
+        dispose: vi.fn<() => void>(() => canvas.remove()),
       } as unknown as HarukaViewport
     }),
   }
@@ -771,5 +788,391 @@ describe('transformation stack integration', () => {
 
     await locateButton.trigger('click')
     expect(vp.locateCube).toHaveBeenCalledOnce()
+  })
+})
+
+describe('direct manipulation translation', () => {
+  const viewport = () => vi.mocked(mountHarukaViewport).mock.results[0]!.value
+  const canvas = () => wrapper.get('.viewport canvas')
+  const press = async (key: string, init: KeyboardEventInit = {}, on: Element = document.body) => {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+    on.dispatchEvent(event)
+    await wrapper.vm.$nextTick()
+    return event
+  }
+  const pointer = async (on: Element, type: string, clientX: number) => {
+    on.dispatchEvent(new MouseEvent(type, { button: 0, clientX, clientY: 50, bubbles: true }))
+    await wrapper.vm.$nextTick()
+  }
+  const clickCanvas = async (x: number, drag = 0) => {
+    await pointer(canvas().element, 'pointerdown', x)
+    await pointer(canvas().element, 'pointerup', x + drag)
+  }
+  const move = async (x: number, y: number) => {
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: x, clientY: y }))
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    await wrapper.vm.$nextTick()
+  }
+  const lastManipulation = () => vi.mocked(viewport().setManipulation).mock.calls.at(-1)?.[0]
+  const hud = () => wrapper.find('.tool-hud')
+  const caption = () => wrapper.get('.geometry-panel caption').text()
+  const translationOf = (x: number, y: number, z: number) =>
+    toMatrix({ type: 'translation', x, y, z })
+  const mountWithRT = async () => {
+    wrapper = mount(App, { attachTo: document.body })
+    await add('translation')
+    await wrapper.get('article input[name="x"]').setValue('2')
+    await add('rotation')
+    await wrapper
+      .get('article[data-operation-id="op-2"] td[data-index="0"] button')
+      .trigger('click')
+    await wrapper.get('article[data-operation-id="op-2"] input[name="angle"]').setValue('90')
+    await wrapper.get('article[data-operation-id="op-2"] input[name="angle"]').trigger('blur')
+    return { state: stackPanel().props('state'), committed: expectResultsInSync().matrix }
+  }
+
+  it('selects by clicking the cube, deselects on background, ignores orbit drags and keeps the stack', async () => {
+    const { state } = await mountWithRT()
+    const syncs = vi.mocked(viewportSync()).mock.calls.length
+    await clickCanvas(50)
+    expect(lastManipulation()).toEqual({ selected: true, active: false })
+    await clickCanvas(300)
+    expect(lastManipulation()).toEqual({ selected: false, active: false })
+    const calls = vi.mocked(viewport().setManipulation).mock.calls.length
+    await clickCanvas(50, 20)
+    const locate = wrapper.get('button[aria-label="Locate Cube"]').element
+    await pointer(locate, 'pointerdown', 50)
+    await pointer(locate, 'pointerup', 50)
+    expect(vi.mocked(viewport().setManipulation).mock.calls).toHaveLength(calls)
+    expect(stackPanel().props('state')).toBe(state)
+    expect(vi.mocked(viewportSync())).toHaveBeenCalledTimes(syncs)
+  })
+
+  it('G previews T · M without editing the stack, X/Y/Z re-derive one draft, and Enter commits it on top', async () => {
+    const { state, committed } = await mountWithRT()
+    await press('g')
+    expect(hud().exists()).toBe(false)
+    await clickCanvas(50)
+    await press('g')
+    expect(hud().text()).toContain('Translate · Free')
+    expect(lastManipulation()).toEqual({ selected: true, active: true })
+    await move(200, 100)
+    await move(500, 300)
+    expect(expectResultsInSync().matrix).toEqual(multiply(translationOf(3, 2, 5), committed))
+    expect(stackPanel().props('state')).toBe(state)
+    expect(caption()).toContain('Preview')
+    const cases: readonly (readonly [string, string, readonly [number, number, number]])[] = [
+      ['x', 'X', [3, 0, 0]],
+      ['Y', 'Y', [0, 2, 0]],
+      ['z', 'Z', [0, 0, 5]],
+      ['X', 'X', [3, 0, 0]],
+    ]
+    for (const [key, label, expected] of cases) {
+      await press(key)
+      expect(hud().text()).toContain(`Translate · ${label}`)
+      expect(expectResultsInSync().matrix).toEqual(
+        multiply(translationOf(expected[0], expected[1], expected[2]), committed),
+      )
+    }
+    expect(hud().text()).toContain('T(3, 0, 0)')
+    expect(stackPanel().props('state')).toBe(state)
+    await press('g')
+    expect(expectResultsInSync().matrix).toEqual(multiply(translationOf(3, 0, 0), committed))
+    const preview = expectResultsInSync().matrix
+
+    const enter = await press('Enter')
+    expect(enter.defaultPrevented).toBe(true)
+    expect(cardIds()).toEqual(['op-3', 'op-2', 'op-1'])
+    expect(stackPanel().props('state').operations[0]?.transform).toEqual({
+      type: 'translation',
+      x: 3,
+      y: 0,
+      z: 0,
+    })
+    expect(stackPanel().props('state').operations.slice(1)).toEqual(state.operations)
+    expect(expectResultsInSync().matrix).toEqual(preview)
+    expect(hud().exists()).toBe(false)
+    expect(caption()).toBe('Final Matrix')
+    expect(lastManipulation()).toEqual({ selected: true, active: false })
+    await add('scale')
+    expect(cardIds()[0]).toBe('op-4')
+  })
+
+  it('Escape restores the committed results exactly; a left click commits like Enter', async () => {
+    const { state, committed } = await mountWithRT()
+    await clickCanvas(50)
+    await press('g')
+    await move(100, 100)
+    await move(400, 100)
+    expect(expectResultsInSync().matrix).not.toEqual(committed)
+    await press('Escape')
+    expect(expectResultsInSync().matrix).toEqual(committed)
+    expect(stackPanel().props('state')).toBe(state)
+    expect(hud().exists()).toBe(false)
+    expect(lastManipulation()).toEqual({ selected: true, active: false })
+
+    await press('g')
+    await move(100, 100)
+    await move(400, 100)
+    const preview = expectResultsInSync().matrix
+    await clickCanvas(300)
+    expect(cardIds()).toEqual(['op-3', 'op-2', 'op-1'])
+    expect(expectResultsInSync().matrix).toEqual(preview)
+    expect(lastManipulation()).toEqual({ selected: true, active: false })
+  })
+
+  it('does not create a neutral translation for zero or microscopic movement', async () => {
+    const { state } = await mountWithRT()
+    await clickCanvas(50)
+    await press('g')
+    await press('Enter')
+    await press('g')
+    await move(200, 100)
+    await move(200 + 1e-9, 100)
+    await press('Enter')
+    expect(stackPanel().props('state')).toBe(state)
+    expect(hud().exists()).toBe(false)
+  })
+
+  it('ignores shortcuts typed into editable targets and repeated G, while Escape always cancels', async () => {
+    const { state } = await mountWithRT()
+    await clickCanvas(50)
+    const input = wrapper.get('article input[name="x"]').element
+    for (const key of ['g', 'x', 'y', 'z', 'G']) await press(key, {}, input)
+    await press('g', { repeat: true })
+    expect(hud().exists()).toBe(false)
+    const editable = document.createElement('div')
+    editable.setAttribute('contenteditable', '')
+    document.body.append(editable)
+    await press('g', {}, editable)
+    expect(hud().exists()).toBe(false)
+    editable.remove()
+
+    await press('g')
+    await press('x', {}, input)
+    await press('Enter', {}, input)
+    expect(hud().text()).toContain('Translate · Free')
+    await press('Escape', {}, input)
+    expect(hud().exists()).toBe(false)
+    expect(stackPanel().props('state')).toBe(state)
+  })
+
+  it('blocks Locate Cube during a draft and restores it afterwards', async () => {
+    await mountWithRT()
+    await clickCanvas(50)
+    await press('g')
+    await wrapper.get('button[aria-label="Locate Cube"]').trigger('click')
+    expect(viewport().locateCube).not.toHaveBeenCalled()
+    await press('Escape')
+    await wrapper.get('button[aria-label="Locate Cube"]').trigger('click')
+    expect(viewport().locateCube).toHaveBeenCalledOnce()
+  })
+
+  it('removes draft listeners on unmount', async () => {
+    await mountWithRT()
+    await clickCanvas(50)
+    await press('g')
+    const syncs = vi.mocked(viewportSync()).mock.calls.length
+    const removed = vi.spyOn(window, 'removeEventListener')
+    wrapper.unmount()
+    expect(removed.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(['keydown', 'pointermove', 'pointerdown']),
+    )
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 900, clientY: 900 }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    expect(vi.mocked(viewportSync())).toHaveBeenCalledTimes(syncs)
+    wrapper = undefined as unknown as VueWrapper
+  })
+
+  it('keeps repeated axis commits as separate translations without merging', async () => {
+    const { state } = await mountWithRT()
+    await clickCanvas(50)
+    for (const key of ['x', 'y', 'z']) {
+      await press('g')
+      await press(key)
+      await move(100, 100)
+      await move(200, 300)
+      await press('Enter')
+    }
+    expect(cardIds()).toEqual(['op-5', 'op-4', 'op-3', 'op-2', 'op-1'])
+    expect(
+      stackPanel()
+        .props('state')
+        .operations.slice(0, 3)
+        .map(({ transform }: { transform: unknown }) => transform),
+    ).toEqual([
+      { type: 'translation', x: 0, y: 0, z: 3 },
+      { type: 'translation', x: 0, y: 2, z: 0 },
+      { type: 'translation', x: 1, y: 0, z: 0 },
+    ])
+    expect(stackPanel().props('state').operations.slice(3)).toEqual(state.operations)
+    expectResultsInSync()
+  })
+
+  it('renders live draft card at the top of the stack during translation and commits it with exact continuity', async () => {
+    const { committed } = await mountWithRT()
+    await clickCanvas(50)
+    await press('g')
+
+    const draftCard = wrapper.find('.draft-card')
+    expect(draftCard.exists()).toBe(true)
+    expect(draftCard.find('.draft-badge').text()).toBe('Preview')
+    expect(caption()).toBe('Preview')
+
+    await move(100, 100)
+    await move(300, 200)
+
+    expect(draftCard.exists()).toBe(true)
+    const expectedPreview = multiply(translationOf(2, 1, 3), committed)
+    expect(expectResultsInSync().matrix).toEqual(expectedPreview)
+
+    const enter = await press('Enter')
+    expect(enter.defaultPrevented).toBe(true)
+    expect(wrapper.find('.draft-card').exists()).toBe(false)
+    expect(caption()).toBe('Final Matrix')
+    expect(expectResultsInSync().matrix).toEqual(expectedPreview)
+    expect(cardIds()[0]).toBe('op-3')
+  })
+
+  it('toggles plane locks via toolbar, reflects in HUD, restricts deltas, and persists across sessions', async () => {
+    await mountWithRT()
+    await clickCanvas(50)
+
+    const btnX = wrapper.get('.axis-lock-toolbar button[aria-label="Lock X axis"]')
+    const btnY = wrapper.get('.axis-lock-toolbar button[aria-label="Lock Y axis"]')
+    const btnZ = wrapper.get('.axis-lock-toolbar button[aria-label="Lock Z axis"]')
+
+    expect(btnX.attributes('aria-pressed')).toBe('false')
+    expect(btnY.attributes('aria-pressed')).toBe('false')
+    expect(btnZ.attributes('aria-pressed')).toBe('false')
+    expect(btnX.classes()).not.toContain('active')
+
+    await btnX.trigger('click')
+    expect(btnX.attributes('aria-pressed')).toBe('true')
+    expect(btnX.classes()).toContain('active')
+    expect(vi.mocked(viewport().setViewAxisLock)).toHaveBeenLastCalledWith('x')
+
+    await press('g')
+    expect(hud().text()).toContain('Translate · Plane YZ')
+    // Buttons are disabled during translation draft
+    expect(btnX.attributes('disabled')).toBeDefined()
+    expect(btnY.attributes('disabled')).toBeDefined()
+    expect(btnZ.attributes('disabled')).toBeDefined()
+
+    await move(100, 100)
+    await move(200, 300)
+    expect(hud().text()).toContain('T(0, 2, 3)')
+
+    // Inside G, Y restricts to Y in YZ plane
+    await press('y')
+    expect(hud().text()).toContain('Translate · Y · Plane YZ')
+    expect(hud().text()).toContain('T(0, 2, 0)')
+
+    // Inside G, pressing X (the locked axis) is contradictory/ignored
+    await press('x')
+    expect(hud().text()).toContain('Translate · Y · Plane YZ')
+
+    // Commit translation
+    await press('Enter')
+    expect(cardIds()[0]).toBe('op-3')
+    expect(stackPanel().props('state').operations[0]?.transform).toEqual({
+      type: 'translation',
+      x: 0,
+      y: 2,
+      z: 0,
+    })
+
+    // Now draft is over, buttons enabled again
+    expect(btnX.attributes('disabled')).toBeUndefined()
+    expect(btnX.attributes('aria-pressed')).toBe('true')
+
+    // Switch to Lock Z
+    await btnZ.trigger('click')
+    expect(btnX.attributes('aria-pressed')).toBe('false')
+    expect(btnZ.attributes('aria-pressed')).toBe('true')
+    expect(vi.mocked(viewport().setViewAxisLock)).toHaveBeenLastCalledWith('z')
+
+    await press('g')
+    expect(hud().text()).toContain('Translate · Plane XY')
+    await move(100, 100)
+    await move(200, 300)
+    expect(hud().text()).toContain('T(1, 2, 0)')
+    await press('Escape')
+
+    // Untoggle Lock Z -> null (free)
+    await btnZ.trigger('click')
+    expect(btnZ.attributes('aria-pressed')).toBe('false')
+    expect(vi.mocked(viewport().setViewAxisLock)).toHaveBeenLastCalledWith(null)
+  })
+
+  it('controls display precision from GeometryPanel without modifying underlying mathematical values', async () => {
+    await mountWithRT()
+    const select = wrapper.get('.geometry-panel select[aria-label="Displayed decimal places"]')
+    expect((select.element as HTMLSelectElement).value).toBe('4')
+
+    await select.setValue('1')
+    expect(wrapper.getComponent({ name: 'GeometryPanel' }).props('precision')).toBe(1)
+    const formattedCell = wrapper.findAll('.geometry-panel td[data-index]')[0]!.text()
+    expect(formattedCell).toBe('0')
+
+    await select.setValue('2')
+    expect(wrapper.getComponent({ name: 'GeometryPanel' }).props('precision')).toBe(2)
+    expect(wrapper.getComponent({ name: 'TransformStackPanel' }).props('precision')).toBe(2)
+
+    // Underlying object matrix in Three is exact and unaffected
+    expect(target().matrix.elements[12]).toBeCloseTo(0, 10)
+    expect(target().matrix.elements[13]).toBeCloseTo(2, 10)
+  })
+
+  it('coalesces rapid pointer moves to 1 update per RAF, flushes latest on commit, and cancels cleanly on Escape', async () => {
+    await mountWithRT()
+    await clickCanvas(50)
+    await press('g')
+
+    const dragDeltaSpy = vi.mocked(viewport().dragDelta)
+    dragDeltaSpy.mockClear()
+
+    for (let i = 0; i < 10; i++) {
+      window.dispatchEvent(
+        new MouseEvent('pointermove', { clientX: 100 + i * 10, clientY: 100 + i * 10 }),
+      )
+    }
+    expect(dragDeltaSpy).toHaveBeenCalledTimes(0)
+
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    await wrapper.vm.$nextTick()
+    expect(dragDeltaSpy).toHaveBeenCalledTimes(1)
+    expect(dragDeltaSpy.mock.calls[0]![1]).toEqual([190, 190])
+
+    // Rapid event followed immediately by commit flushes without waiting for RAF
+    dragDeltaSpy.mockClear()
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 250, clientY: 250 }))
+    expect(dragDeltaSpy).toHaveBeenCalledTimes(0)
+
+    await press('Enter')
+    expect(dragDeltaSpy).toHaveBeenCalledTimes(1)
+    expect(dragDeltaSpy.mock.calls[0]![1]).toEqual([250, 250])
+  })
+
+  it('displays discrete grab hint, highlights when selected, and hides during translation draft', async () => {
+    await mountWithRT()
+    const hint = wrapper.find('.grab-hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('G — Grab')
+    expect(hint.classes()).not.toContain('selected')
+
+    // Click cube to select
+    await clickCanvas(50)
+    expect(wrapper.find('.grab-hint').classes()).toContain('selected')
+
+    // Start translation draft via G
+    await press('g')
+    expect(wrapper.find('.grab-hint').exists()).toBe(false)
+    expect(wrapper.find('.tool-hud').exists()).toBe(true)
+
+    // Cancel draft via Escape
+    await press('Escape')
+    expect(wrapper.find('.grab-hint').exists()).toBe(true)
+    expect(wrapper.find('.tool-hud').exists()).toBe(false)
   })
 })

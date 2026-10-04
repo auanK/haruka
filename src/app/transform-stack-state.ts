@@ -19,6 +19,19 @@ export type StackEditResult =
   | { readonly ok: true; readonly state: TransformStackState }
   | { readonly ok: false; readonly reason: StackEditFailure }
 
+export const createOperationId = (state?: TransformStackState): string => {
+  let max = 0
+  if (state) {
+    for (const op of state.operations) {
+      const match = op.id.match(/^op-(\d+)$/)
+      if (match) {
+        max = Math.max(max, Number(match[1]))
+      }
+    }
+  }
+  return `op-${max + 1}`
+}
+
 export const createTransformStackState = (): TransformStackState => ({ operations: [] })
 
 export const addTransformOperation = (

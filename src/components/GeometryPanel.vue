@@ -2,19 +2,52 @@
 import { toRaw } from 'vue'
 import type { CubeVertex } from '../app/didactic-cube'
 import type { Matrix4 } from '../domain'
-import { formatNumber } from '../ui/transform-stack'
+import { formatNumber, type DisplayPrecision } from '../ui/transform-stack'
 import Matrix4Grid from './Matrix4Grid.vue'
 
-defineProps<{
-  vertices: readonly CubeVertex[]
-  finalMatrix: Matrix4
+withDefaults(
+  defineProps<{
+    vertices: readonly CubeVertex[]
+    finalMatrix: Matrix4
+    caption?: string
+    precision?: DisplayPrecision
+  }>(),
+  {
+    caption: 'Final Matrix',
+    precision: 4,
+  },
+)
+
+const emit = defineEmits<{
+  'update:precision': [precision: DisplayPrecision]
 }>()
+
+const onPrecisionChange = (event: Event) => {
+  const value = (event.target as HTMLSelectElement).value
+  const next = Number(value) as DisplayPrecision
+  emit('update:precision', next)
+}
 </script>
 
 <template>
   <aside class="geometry-panel" aria-label="Geometry inspector">
-    <header>
+    <header class="panel-header">
       <h1>Vertices</h1>
+      <label class="precision-control" title="Displayed decimal places">
+        <span class="precision-label">Precision</span>
+        <select
+          :value="precision"
+          aria-label="Displayed decimal places"
+          title="Displayed decimal places"
+          @change="onPrecisionChange"
+        >
+          <option :value="0">0</option>
+          <option :value="1">1</option>
+          <option :value="2">2</option>
+          <option :value="3">3</option>
+          <option :value="4">4</option>
+        </select>
+      </label>
     </header>
 
     <div class="panel-content">
@@ -30,14 +63,18 @@ defineProps<{
         <tbody>
           <tr v-for="vertex in vertices" :key="vertex.id" :data-vertex-id="vertex.id">
             <th>{{ vertex.id }}</th>
-            <td>{{ formatNumber(vertex.point[0]) }}</td>
-            <td>{{ formatNumber(vertex.point[1]) }}</td>
-            <td>{{ formatNumber(vertex.point[2]) }}</td>
+            <td>{{ formatNumber(vertex.point[0], precision) }}</td>
+            <td>{{ formatNumber(vertex.point[1], precision) }}</td>
+            <td>{{ formatNumber(vertex.point[2], precision) }}</td>
           </tr>
         </tbody>
       </table>
 
-      <Matrix4Grid :matrix="toRaw(finalMatrix)" caption="Final Matrix" />
+      <Matrix4Grid
+        :matrix="toRaw(finalMatrix)"
+        :caption="caption ?? 'Final Matrix'"
+        :precision="precision"
+      />
     </div>
   </aside>
 </template>
@@ -58,9 +95,32 @@ defineProps<{
   overflow: hidden;
 }
 
-header {
-  padding: 0.5rem 0.65rem 0.35rem;
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.65rem 0.35rem;
   border-bottom: 1px solid color-mix(in srgb, var(--color-interaction) 25%, var(--color-border));
+}
+
+.precision-control {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.precision-control select {
+  font-size: 11px;
+  font-family: inherit;
+  background: var(--color-input);
+  color: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: 2px;
+  padding: 1px 4px;
 }
 
 h1 {
@@ -90,7 +150,7 @@ h1 {
 .vertex-table {
   width: 100%;
   max-width: none;
-  table-layout: auto;
+  table-layout: fixed;
   border-collapse: collapse;
   font-family: monospace;
   font-size: 12.5px;

@@ -78,4 +78,14 @@ describe('orientation gizmo', () => {
     expect(resources.size).toBe(12)
     for (const dispose of disposed) expect(dispose).toHaveBeenCalledOnce()
   })
+
+  it('renders labels with increased scale for immediate readability without relying solely on color', () => {
+    const gizmo = createOrientationGizmo()
+    const labelX = gizmo.group.getObjectByName('orientation-label-X') as Sprite
+    expect(labelX).toBeDefined()
+    // Scale should be >= 0.5 (scaled up from previous 0.35)
+    expect(labelX.scale.x).toBeGreaterThanOrEqual(0.5)
+    expect(labelX.scale.y).toBeGreaterThanOrEqual(0.25)
+    gizmo.dispose()
+  })
 })

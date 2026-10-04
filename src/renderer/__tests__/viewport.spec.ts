@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  Camera,
   Group,
   Mesh,
   OrthographicCamera,
@@ -10,9 +11,15 @@ import {
   WebGLRenderer,
 } from 'three'
 import { transformCubeVertices, type CubeVertex } from '../../app/didactic-cube'
-import { toMatrix } from '../../domain'
+import { multiply, toMatrix, transformPoint } from '../../domain'
 import { mockCanvas2D } from './canvas-2d'
-import { MAX_WEBGL_DPR, mountHarukaViewport, renderViewport, resizeViewport } from '../viewport'
+import {
+  MAX_WEBGL_DPR,
+  mountHarukaViewport,
+  renderViewport,
+  resizeViewport,
+  type HarukaViewport,
+} from '../viewport'
 import * as orientationGizmo from '../orientation-gizmo'
 
 let notifyResize: () => void
@@ -92,7 +99,7 @@ describe('renderViewport', () => {
         scene: new Scene(),
         camera: new OrthographicCamera(),
         group: new Group(),
-        updateOrientation: vi.fn<(camera: PerspectiveCamera) => void>(),
+        updateOrientation: vi.fn<(camera: Camera) => void>(),
         dispose: vi.fn<() => void>(),
       }
       const events: string[] = []
@@ -142,7 +149,7 @@ describe('renderViewport', () => {
       scene: new Scene(),
       camera: new OrthographicCamera(),
       group: new Group(),
-      updateOrientation: vi.fn<(camera: PerspectiveCamera) => void>(),
+      updateOrientation: vi.fn<(camera: Camera) => void>(),
       dispose: vi.fn<() => void>(),
     }
     const renderer = {
@@ -718,4 +725,200 @@ describe('free navigation and adaptive clipping', () => {
       viewport.dispose()
     },
   )
+})
+
+describe('direct manipulation boundary', () => {
+  const mount = () => {
+    const container = document.createElement('div')
+    Object.defineProperty(container, 'clientWidth', { value: 800 })
+    Object.defineProperty(container, 'clientHeight', { value: 600 })
+    const viewport = mountHarukaViewport(container)
+    vi.spyOn(viewport.renderer.domElement, 'getBoundingClientRect').mockReturnValue({
+      left: 300,
+      top: 40,
+      width: 800,
+      height: 600,
+    } as DOMRect)
+    vi.runAllTimers()
+    return viewport
+  }
+  const screenOf = (viewport: HarukaViewport, point: Vector3) => {
+    const { x, y } = point.clone().project(viewport.camera)
+    return [300 + ((x + 1) / 2) * 800, 40 + ((1 - y) / 2) * 600] as const
+  }
+
+  it('hit-tests only the rendered cube body, including shear, reflection and negative scale', () => {
+    const viewport = mount()
+    const matrix = multiply(
+      toMatrix({ type: 'translation', x: 3, y: 1, z: -2 }),
+      multiply(
+        toMatrix({ type: 'reflection', plane: 'yz' }),
+        multiply(
+          toMatrix({ type: 'shear', kxy: 0.8, kxz: 0, kyx: 0, kyz: 0.4, kzx: 0, kzy: 0 }),
+          toMatrix({ type: 'scale', x: -1.5, y: 2, z: 1 }),
+        ),
+      ),
+    )
+    viewport.sync({ matrix, vertices: transformCubeVertices(matrix) })
+    const center = new Vector3(...transformPoint(matrix, [0, 0, 0]))
+    expect(viewport.pick(...screenOf(viewport, center))).toBe(true)
+    expect(viewport.pick(...screenOf(viewport, new Vector3(0, 0, 0)))).toBe(false)
+    expect(viewport.pick(...screenOf(viewport, new Vector3(-6, 0, 6)))).toBe(false)
+    viewport.dispose()
+  })
+
+  it('gives the object exclusive ownership of the gesture only while manipulation is active', () => {
+    const viewport = mount()
+    const raf = vi.spyOn(window, 'requestAnimationFrame')
+    expect(viewport.controls.enabled).toBe(true)
+    viewport.setManipulation({ selected: true, active: false })
+    expect(viewport.controls.enabled).toBe(true)
+    viewport.setManipulation({ selected: true, active: true })
+    expect(viewport.controls.enabled).toBe(false)
+    viewport.setManipulation({ selected: true, active: false })
+    expect(viewport.controls.enabled).toBe(true)
+    vi.runAllTimers()
+    const frames = raf.mock.calls.length
+    vi.advanceTimersByTime(5000)
+    expect(raf.mock.calls.length).toBe(frames)
+    viewport.setManipulation({ selected: true, active: true })
+    viewport.dispose()
+    expect(viewport.controls.enabled).toBe(true)
+  })
+
+  it('derives a world-space drag delta from canvas-relative client coordinates', () => {
+    const viewport = mount()
+    const start = screenOf(viewport, new Vector3(0, 0, 0))
+    const end = screenOf(viewport, new Vector3(2, 0, 0))
+    const delta = viewport.dragDelta(start, end, [0, 0, 0], 'x')
+    expect(delta![0]).toBeCloseTo(2, 6)
+    expect(delta!.slice(1)).toEqual([0, 0])
+    viewport.dispose()
+  })
+
+  describe('view axis lock 2D (orthographic camera lock)', () => {
+    it('switches to real OrthographicCamera looking along axis, disables rotation, and matches frustum scale', () => {
+      const viewport = mount()
+      expect(
+        (viewport.camera as unknown as { isPerspectiveCamera: boolean }).isPerspectiveCamera,
+      ).toBe(true)
+      expect(viewport.controls.enableRotate).toBe(true)
+
+      const perspPos = viewport.camera.position.clone()
+      const perspTarget = viewport.controls.target.clone()
+      const d = perspPos.distanceTo(perspTarget)
+      const expectedH =
+        2 * d * Math.tan(((viewport.camera as unknown as PerspectiveCamera).fov * Math.PI) / 360)
+
+      // Lock X
+      viewport.setViewAxisLock('x')
+      expect(
+        (viewport.camera as unknown as { isOrthographicCamera: boolean }).isOrthographicCamera,
+      ).toBe(true)
+      expect(viewport.controls.enableRotate).toBe(false)
+      expect(viewport.controls.enablePan).toBe(true)
+      expect(viewport.controls.enableZoom).toBe(true)
+
+      const ortho = viewport.camera as unknown as OrthographicCamera
+      expect(ortho.top - ortho.bottom).toBeCloseTo(expectedH, 4)
+      // Lock X looks from +X towards target
+      expect(ortho.position.x).toBeGreaterThan(viewport.controls.target.x)
+      expect(ortho.position.y).toBeCloseTo(viewport.controls.target.y, 4)
+      expect(ortho.position.z).toBeCloseTo(viewport.controls.target.z, 4)
+
+      viewport.dispose()
+    })
+
+    it('preserves the original perspective camera snapshot across multiple lock switches and restores it on null', () => {
+      const viewport = mount()
+      const initialPos = viewport.camera.position.clone()
+      const initialTarget = viewport.controls.target.clone()
+
+      viewport.setViewAxisLock('x')
+      expect(
+        (viewport.camera as unknown as { isOrthographicCamera: boolean }).isOrthographicCamera,
+      ).toBe(true)
+
+      // Switch X -> Y: must preserve original perspective snapshot, not overwrite with ortho coords
+      viewport.setViewAxisLock('y')
+      expect(
+        (viewport.camera as unknown as { isOrthographicCamera: boolean }).isOrthographicCamera,
+      ).toBe(true)
+      const orthoY = viewport.camera as unknown as OrthographicCamera
+      expect(orthoY.position.y).toBeGreaterThan(viewport.controls.target.y)
+
+      // Switch Y -> Z
+      viewport.setViewAxisLock('z')
+      expect(
+        (viewport.camera as unknown as { isOrthographicCamera: boolean }).isOrthographicCamera,
+      ).toBe(true)
+      const orthoZ = viewport.camera as unknown as OrthographicCamera
+      expect(orthoZ.position.z).toBeGreaterThan(viewport.controls.target.z)
+
+      // Switch back to null: restores original free camera
+      viewport.setViewAxisLock(null)
+      expect(
+        (viewport.camera as unknown as { isPerspectiveCamera: boolean }).isPerspectiveCamera,
+      ).toBe(true)
+      expect(viewport.controls.enableRotate).toBe(true)
+      expect(viewport.camera.position.toArray()).toEqual(initialPos.toArray())
+      expect(viewport.controls.target.toArray()).toEqual(initialTarget.toArray())
+
+      viewport.dispose()
+    })
+
+    it('centers the cube via locateCube during lock without breaking the lock or switching to perspective', () => {
+      const viewport = mount()
+      viewport.sync({
+        matrix: toMatrix({ type: 'translation', x: 5, y: 3, z: -4 }),
+        vertices: transformCubeVertices(toMatrix({ type: 'translation', x: 5, y: 3, z: -4 })),
+      })
+
+      viewport.setViewAxisLock('z')
+      expect(
+        (viewport.camera as unknown as { isOrthographicCamera: boolean }).isOrthographicCamera,
+      ).toBe(true)
+
+      viewport.locateCube()
+
+      // Lock is still active and camera is still orthographic
+      expect(
+        (viewport.camera as unknown as { isOrthographicCamera: boolean }).isOrthographicCamera,
+      ).toBe(true)
+      expect(viewport.controls.enableRotate).toBe(false)
+      // Controls target centered on cube (x=5, y=3, z=-4)
+      expect(viewport.controls.target.x).toBeCloseTo(5, 4)
+      expect(viewport.controls.target.y).toBeCloseTo(3, 4)
+      expect(viewport.controls.target.z).toBeCloseTo(-4, 4)
+
+      viewport.dispose()
+    })
+
+    it('aligns reference grid plane and occludes rear vertex labels according to axis lock', () => {
+      const viewport = mount()
+      const gridMesh = viewport.grid.group.children.find((child) => child instanceof Mesh) as Mesh
+      const labelGroup = viewport.scene.getObjectByName('vertex-labels') as Group
+
+      // Lock X: grid becomes YZ plane, rear vertex labels are occluded
+      viewport.setViewAxisLock('x')
+      vi.runAllTimers()
+      expect(gridMesh.rotation.y).toBeCloseTo(Math.PI / 2)
+      expect(labelGroup.children.filter((c) => c.visible)).toHaveLength(4)
+
+      // Lock Z: grid becomes XY plane
+      viewport.setViewAxisLock('z')
+      vi.runAllTimers()
+      expect(gridMesh.rotation.y).toBeCloseTo(0)
+      expect(gridMesh.rotation.x).toBeCloseTo(0)
+      expect(labelGroup.children.filter((c) => c.visible)).toHaveLength(4)
+
+      // Unlock: grid returns to XZ plane, all labels visible
+      viewport.setViewAxisLock(null)
+      vi.runAllTimers()
+      expect(gridMesh.rotation.x).toBeCloseTo(-Math.PI / 2)
+      expect(labelGroup.children.filter((c) => c.visible)).toHaveLength(8)
+
+      viewport.dispose()
+    })
+  })
 })

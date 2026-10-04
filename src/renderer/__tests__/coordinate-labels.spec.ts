@@ -212,4 +212,31 @@ describe('world-space coordinate glyph batch', () => {
     for (const spy of dispose) expect(spy).toHaveBeenCalledOnce()
     expect(labels.group.children).toHaveLength(0)
   })
+
+  it('bakes shadow on canvas context and scales glyphs to maintain stable screen size across camera distance', () => {
+    const labels = createCoordinateLabels()
+    const canvas = labels.texture.image as HTMLCanvasElement
+    const context = canvas.getContext('2d')!
+    expect(context.shadowColor).toBeTruthy()
+    expect(context.shadowBlur).toBeGreaterThan(0)
+
+    const cameraClose = cameraAt()
+    cameraClose.position.set(0, 5, 10)
+    cameraClose.lookAt(0, 0, 0)
+    labels.update(cameraClose, new Vector3(), 800, 600)
+    const scaleClose =
+      (labels.mesh.material as unknown as { userData?: { viewScale?: number } }).userData
+        ?.viewScale ?? 1
+
+    const cameraFar = cameraAt()
+    cameraFar.position.set(0, 50, 100)
+    cameraFar.lookAt(0, 0, 0)
+    labels.update(cameraFar, new Vector3(), 800, 600)
+    const scaleFar =
+      (labels.mesh.material as unknown as { userData?: { viewScale?: number } }).userData
+        ?.viewScale ?? 1
+
+    expect(scaleFar).toBeGreaterThan(scaleClose * 5)
+    labels.dispose()
+  })
 })

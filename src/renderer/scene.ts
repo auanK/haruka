@@ -12,6 +12,7 @@ import {
   PerspectiveCamera,
   Scene,
   Vector3,
+  type Camera,
 } from 'three'
 import type { CubeVertex } from '../app/didactic-cube'
 import { identity } from '../domain'
@@ -25,10 +26,22 @@ export type HarukaScene = {
   readonly scene: Scene
   readonly camera: PerspectiveCamera
   readonly target: Group
+  readonly body: Mesh
+  readonly setHighlight: (selected: boolean) => void
   readonly grid: AdaptiveGrid
   readonly coordinateLabels: CoordinateLabels
-  readonly updateVertexLabels: (vertices: readonly CubeVertex[]) => void
-  readonly updateScene: (width: number, height: number, focusTarget?: Vector3) => void
+  readonly updateVertexLabels: (
+    vertices: readonly CubeVertex[],
+    camera?: Camera,
+    is2DLock?: boolean,
+  ) => void
+  readonly updateScene: (
+    width: number,
+    height: number,
+    focusTarget?: Vector3,
+    activeCam?: Camera,
+    activePlane?: 'xz' | 'yz' | 'xy',
+  ) => void
   readonly dispose: () => void
 }
 
@@ -59,6 +72,10 @@ export const createHarukaScene = (): HarukaScene => {
   const edges = new LineSegments(new EdgesGeometry(body.geometry), edgeMaterial)
   target.add(body, edges)
 
+  const setHighlight = (selected: boolean) => {
+    edgeMaterial.color.setHex(selected ? 0x5bc2e8 : 0xa8a6af)
+  }
+
   const ambientLight = new AmbientLight(0xffffff, 2.2)
   const directionalLight = new DirectionalLight(0xffffff, 1.2)
   directionalLight.position.set(4, 6, 8)
@@ -70,15 +87,24 @@ export const createHarukaScene = (): HarukaScene => {
   scene.add(target, grid.group, vertexLabels.group, coordinateLabels.group)
   const defaultFocus = new Vector3()
 
-  const updateScene = (width: number, height: number, focusTarget?: Vector3) => {
-    grid.update(camera, width, height, focusTarget)
-    coordinateLabels.update(camera, focusTarget ?? defaultFocus, width, height)
+  const updateScene = (
+    width: number,
+    height: number,
+    focusTarget?: Vector3,
+    activeCam?: Camera,
+    activePlane?: 'xz' | 'yz' | 'xy',
+  ) => {
+    const cam = activeCam ?? camera
+    grid.update(cam, width, height, focusTarget, activePlane)
+    coordinateLabels.update(cam, focusTarget ?? defaultFocus, width, height)
   }
 
   return {
     scene,
     camera,
     target,
+    body,
+    setHighlight,
     grid,
     coordinateLabels,
     updateVertexLabels: vertexLabels.update,

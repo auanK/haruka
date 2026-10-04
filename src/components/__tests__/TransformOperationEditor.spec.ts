@@ -362,4 +362,33 @@ describe('TransformOperationEditor', () => {
     expect(wrapper.find('input').exists()).toBe(false)
     expect(wrapper.get('td[data-index="0"] button').text()).toBe('cos(45°)')
   })
+
+  it('displays inactive inputs formatted to at most 4 decimal places without rounding underlying authority', async () => {
+    const rawValue = 0.9813365662074274
+    render({ type: 'translation', x: rawValue, y: 0, z: 0 })
+    const xInput = wrapper.get('td[data-index="3"] input')
+
+    // Inactive input displays at most 4 decimal places
+    expect((xInput.element as HTMLInputElement).value).toBe('0.9813')
+
+    // Focus without edit, then blur: authority is untouched (no update-transform emitted)
+    await xInput.trigger('focus')
+    await xInput.trigger('blur')
+    expect(wrapper.emitted('update-transform')).toBeUndefined()
+    expect((xInput.element as HTMLInputElement).value).toBe('0.9813')
+
+    // Active typing preserves raw string
+    await xInput.setValue('0.1234567')
+    expect((xInput.element as HTMLInputElement).value).toBe('0.1234567')
+    expect(wrapper.emitted('update-transform')?.slice(-1)[0]).toEqual([
+      { type: 'translation', x: 0.1234567, y: 0, z: 0 },
+    ])
+
+    // After blur, formatted to 4 decimals (0.1235)
+    await wrapper.setProps({
+      operation: operationWith({ type: 'translation', x: 0.1234567, y: 0, z: 0 }),
+    })
+    await xInput.trigger('blur')
+    expect((xInput.element as HTMLInputElement).value).toBe('0.1235')
+  })
 })

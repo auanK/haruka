@@ -6,9 +6,12 @@ export const createTextSprite = (text: string, color = '#c3cedb'): Sprite => {
   canvas.height = 64
   const context = canvas.getContext('2d')
   if (!context) throw new Error('Text labels require a 2D canvas context')
-  context.font = '500 40px system-ui, sans-serif'
+  context.font = '600 42px system-ui, sans-serif'
   context.textAlign = 'center'
   context.textBaseline = 'middle'
+  context.shadowColor = 'rgba(0, 0, 0, 0.9)'
+  context.shadowBlur = 4
+  context.shadowOffsetY = 1
   context.fillStyle = color
   context.fillText(text, 64, 32)
   const sprite = new Sprite(

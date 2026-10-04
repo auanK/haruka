@@ -71,6 +71,44 @@ ui  renderer
 - Degrees and formatted matrix values belong only to presentation; domain angles remain radians
   and matrices remain derived mathematical data.
 
+## Direct Manipulation
+
+- Direct manipulation translates user gestures in the viewport into semantic intent:
+  `input intent -> semantic draft -> preview derived -> commit TransformOperation`.
+- Three.js is used only at the input boundary for picking and ray-plane projection; it remains
+  non-authoritative. Object transforms are never read from Three.js scene objects or decomposed
+  from matrices.
+- The modal gesture lifecycle runs through explicit states: `idle` (unselected or selected) ->
+  `translation-draft` (free or axis-constrained: X/Y/Z) -> `committed` (prepended operation) or
+  `canceled` (draft discarded).
+- During draft, application state is not mutated; the preview matrix is derived by left-multiplying
+  the draft translation onto the committed stack (`Mpreview = Tdraft · Mcommitted`), guaranteeing
+  continuity between preview and commit.
+- A non-authoritative draft card preview is displayed at the top of the transformation stack during
+  active drafts, excluded from drag-and-drop operations and editing controls.
+- Pointer tracking (`lastViewportPointer`) anchors gestures immediately upon pressing `G` when
+  valid coordinates exist, preventing initial jumps. All movements evaluate absolutely from the
+  origin anchor ($P_0 \to P_n$), never by incremental delta accumulation.
+- Pointermove events are coalesced to at most 1 draft update per animation frame (RAF). Commit
+  immediately flushes pending coordinates, while cancel/unmount discards pending frames.
+- Axis lock 2D is a Camera / View Lock (`ViewAxisLock = 'x' | 'y' | 'z' | null`):
+  engaging a lock switches the viewport to a real 2D `OrthographicCamera` perpendicular to the
+  chosen plane (Lock X $\implies$ YZ view, Lock Y $\implies$ XZ view, Lock Z $\implies$ XY view).
+  The free perspective camera snapshot is saved on lock engagement, preserved across lock-to-lock
+  transitions, and restored when unlocked. Controls rotation is disabled during lock, while
+  in-lock Locate Cube centers the 2D view without breaking the lock.
+- Translation gestures within a view lock restrict motion to the active 2D plane ($\Delta = 0$ along
+  the locked axis). Within a lock, in-plane axis constraints (e.g. Y or Z on Lock X) can be toggled
+  via keyboard shortcuts.
+- View lock buttons (X, Y, Z) are positioned directly to the left of the orientation gizmo in a
+  transparent, borderless container, and are disabled during active translation drafts.
+- Numerical precision is strictly separated: mathematical domain types (`Transform`, `Matrix4`,
+  `CubeVertex`) are never rounded. `DisplayPrecision` (0, 1, 2, 3, 4; default 4) is purely
+  presentational across matrices, vertices, and inactive operation inputs. Active typing
+  preserves raw user input. Layout widths use fixed sizing and `tabular-nums` to prevent jitter.
+- OrbitControls is disabled during active drafts, ensuring the camera and object never compete for
+  the same gesture.
+
 ## Matrix Editing Direction
 
 - The read-only matrix component presents four addressable rows and columns in logical row-major

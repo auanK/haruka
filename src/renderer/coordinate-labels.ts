@@ -8,9 +8,11 @@ import {
   LinearFilter,
   Matrix4,
   MeshBasicMaterial,
+  OrthographicCamera,
   PerspectiveCamera,
   PlaneGeometry,
   Vector3,
+  type Camera,
 } from 'three'
 import {
   chooseCoordinateLabelStride,
@@ -42,12 +44,7 @@ export type CoordinateLabels = {
   readonly slots: readonly CoordinateLabelSlot[]
   readonly mesh: InstancedMesh<PlaneGeometry, MeshBasicMaterial>
   readonly texture: CanvasTexture
-  readonly update: (
-    camera: PerspectiveCamera,
-    focus: Vector3,
-    width: number,
-    height: number,
-  ) => void
+  readonly update: (camera: Camera, focus: Vector3, width: number, height: number) => void
   readonly dispose: () => void
 }
 
@@ -64,6 +61,9 @@ export const createCoordinateLabels = (): CoordinateLabels => {
   context.font = '500 28px system-ui, sans-serif'
   context.textAlign = 'center'
   context.textBaseline = 'middle'
+  context.shadowColor = 'rgba(0, 0, 0, 0.9)'
+  context.shadowBlur = 4
+  context.shadowOffsetY = 1
   const advances: number[] = []
   for (let i = 0; i < GLYPHS.length; i++) {
     advances.push(context.measureText(GLYPHS[i]!).width)
@@ -76,6 +76,9 @@ export const createCoordinateLabels = (): CoordinateLabels => {
   const texture = new CanvasTexture(canvas)
   texture.generateMipmaps = false
   texture.minFilter = LinearFilter
+  const uniforms = {
+    uViewScale: { value: 1.0 },
+  }
   const material = new MeshBasicMaterial({
     map: texture,
     transparent: true,
@@ -83,9 +86,12 @@ export const createCoordinateLabels = (): CoordinateLabels => {
     depthWrite: false,
     opacity: 0.85,
   })
+  material.userData = { uniforms, viewScale: 1.0 }
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.uViewScale = uniforms.uViewScale
     shader.vertexShader =
       'attribute vec4 glyph;\n' +
+      'uniform float uViewScale;\n' +
       shader.vertexShader
         .replace(
           '#include <uv_vertex>',
@@ -96,8 +102,7 @@ export const createCoordinateLabels = (): CoordinateLabels => {
           '#include <project_vertex>',
           `
         vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-        mvPosition.xy += position.xy * vec2(0.1 * glyph.z, 0.2);
-        mvPosition.x += glyph.y;
+        mvPosition.xy += (position.xy * vec2(0.1 * glyph.z, 0.2) + vec2(glyph.y, 0.0)) * uViewScale;
         gl_Position = projectionMatrix * mvPosition;`,
         )
   }
@@ -215,9 +220,25 @@ export const createCoordinateLabels = (): CoordinateLabels => {
         ),
         1e-6,
       )
-      const halfHeight = (distance * Math.tan((camera.fov * Math.PI) / 360)) / camera.zoom
+      let halfHeight: number
+      let aspect = 1
+      if (
+        'isOrthographicCamera' in camera &&
+        (camera as { isOrthographicCamera?: boolean }).isOrthographicCamera
+      ) {
+        const ortho = camera as OrthographicCamera
+        halfHeight = (ortho.top - ortho.bottom) / (2 * ortho.zoom)
+        aspect = (ortho.right - ortho.left) / (ortho.top - ortho.bottom)
+      } else {
+        const persp = camera as PerspectiveCamera
+        halfHeight = (distance * Math.tan((persp.fov * Math.PI) / 360)) / persp.zoom
+        aspect = persp.aspect
+      }
       const pixelsPerUnit = height / (2 * halfHeight)
-      const span = Math.max(distance + 2 * halfHeight * Math.max(1, camera.aspect), 1)
+      const viewScale = 48 / Math.max(pixelsPerUnit, 1e-4)
+      uniforms.uViewScale.value = viewScale
+      material.userData.viewScale = viewScale
+      const span = Math.max(distance + 2 * halfHeight * Math.max(1, aspect), 1)
       for (let a = 0; a < axes.length; a++) {
         const axis = axes[a]!
         const interval = deriveVisibleAxisInterval(

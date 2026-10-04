@@ -4,9 +4,22 @@ import type { TransformOperation } from '../app/transform-stack-state'
 import { toMatrix, type ReflectionPlane, type RotationAxis, type Transform } from '../domain'
 import Matrix4Grid from './Matrix4Grid.vue'
 import { deriveTransformMatrixCells, type TransformNumberField } from '../ui/transform-matrix'
-import { degreesToRadians, formatMatrixValue, parseFiniteNumber } from '../ui/transform-stack'
+import {
+  degreesToRadians,
+  formatMatrixValue,
+  parseFiniteNumber,
+  type DisplayPrecision,
+} from '../ui/transform-stack'
 
-const props = defineProps<{ operation: TransformOperation }>()
+const props = withDefaults(
+  defineProps<{
+    operation: TransformOperation
+    precision?: DisplayPrecision
+  }>(),
+  {
+    precision: 4,
+  },
+)
 const emit = defineEmits<{ 'update-transform': [transform: Transform] }>()
 const axes = ['x', 'y', 'z'] as const
 const editor = ref<HTMLElement | null>(null)
@@ -113,6 +126,7 @@ const selectPlane = (plane: ReflectionPlane) => {
   <div ref="editor" class="operation-editor">
     <Matrix4Grid
       :matrix="matrix"
+      :precision="precision"
       caption=""
       class="operation-matrix"
       :class="{ 'rotation-matrix': transform.type === 'rotation' }"
@@ -124,7 +138,7 @@ const selectPlane = (plane: ReflectionPlane) => {
           type="number"
           step="any"
           :name="cells[index]!.field"
-          :value="drafts[cells[index]!.field] ?? cells[index]!.value"
+          :value="drafts[cells[index]!.field] ?? formatMatrixValue(cells[index]!.value, precision)"
           :aria-label="cells[index]!.label"
           :title="cells[index]!.label"
           @input="updateNumber(cells[index]!.field, $event)"
@@ -137,7 +151,7 @@ const selectPlane = (plane: ReflectionPlane) => {
               name="angle"
               type="number"
               step="any"
-              :value="drafts.angle ?? formatMatrixValue(cells[index]!.degrees)"
+              :value="drafts.angle ?? formatMatrixValue(cells[index]!.degrees, precision)"
               :aria-label="cells[index]!.label"
               :title="cells[index]!.label"
               @input="updateNumber('angle', $event)"
@@ -238,10 +252,9 @@ const selectPlane = (plane: ReflectionPlane) => {
 }
 
 input.cell-control {
-  field-sizing: content;
-  width: auto;
-  min-width: 5ch;
-  max-width: 24ch;
+  width: 100%;
+  min-width: 6ch;
+  box-sizing: border-box;
   padding: 0 0.3rem;
 }
 

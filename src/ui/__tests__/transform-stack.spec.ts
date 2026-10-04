@@ -3,7 +3,9 @@ import type { Transform } from '../../domain/transform'
 import {
   createDefaultTransform,
   degreesToRadians,
+  formatDisplayNumber,
   formatMatrixValue,
+  formatNumber,
   parseFiniteNumber,
   radiansToDegrees,
 } from '../transform-stack'
@@ -31,7 +33,7 @@ describe('default transforms', () => {
   })
 })
 
-describe('matrix value presentation', () => {
+describe('matrix value presentation and display precision', () => {
   it.each([
     [0, '0'],
     [-0, '0'],
@@ -49,8 +51,35 @@ describe('matrix value presentation', () => {
     const matrix = [Math.PI, Math.cos(Math.PI / 2), -1.23456789]
     const before = [...matrix]
 
-    expect(matrix.map(formatMatrixValue)).toEqual(['3.1416', '0', '-1.2346'])
+    expect(matrix.map((v) => formatMatrixValue(v))).toEqual(['3.1416', '0', '-1.2346'])
     expect(matrix).toEqual(before)
+  })
+
+  it('formats up to N decimal places without trailing zeros padding', () => {
+    expect(formatDisplayNumber(0.9813365662074274, 4)).toBe('0.9813')
+    expect(formatDisplayNumber(-1.5975810640301011, 4)).toBe('-1.5976')
+    expect(formatDisplayNumber(1.23456, 4)).toBe('1.2346')
+    expect(formatDisplayNumber(1.2, 4)).toBe('1.2')
+    expect(formatDisplayNumber(1, 4)).toBe('1')
+    expect(formatDisplayNumber(-0, 4)).toBe('0')
+    expect(formatDisplayNumber(0, 4)).toBe('0')
+  })
+
+  it('handles custom precision levels 0, 1, 2, 3, and 4 (never full)', () => {
+    expect(formatDisplayNumber(1.6, 0)).toBe('2')
+    expect(formatDisplayNumber(-0.4, 0)).toBe('0')
+    expect(formatDisplayNumber(1.2345, 1)).toBe('1.2')
+    expect(formatDisplayNumber(1.2345, 2)).toBe('1.23')
+    expect(formatDisplayNumber(1.2346, 3)).toBe('1.235')
+    expect(formatDisplayNumber(0.9813365662074274, 4)).toBe('0.9813')
+    // Values never exceed 4 decimal places even if passed out of range
+    // @ts-expect-error 'full' is not a valid DisplayPrecision
+    expect(formatDisplayNumber(-1.5975810640301011, 'full')).toBe('-1.5976')
+  })
+
+  it('defaults to precision 4 when unspecified', () => {
+    expect(formatDisplayNumber(-1.5975810640301011)).toBe('-1.5976')
+    expect(formatNumber(-1.5975810640301011, 2)).toBe('-1.6')
   })
 })
 

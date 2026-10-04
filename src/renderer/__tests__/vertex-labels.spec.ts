@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CanvasTexture, Group, Matrix4, Sprite, Vector3 } from 'three'
+import { CanvasTexture, Group, Matrix4, OrthographicCamera, Sprite, Vector3 } from 'three'
 import { cubeVertices, transformCubeVertices } from '../../app/didactic-cube'
 import { toMatrix, type Transform } from '../../domain'
 import { createVertexLabels } from '../vertex-labels'
@@ -84,5 +84,39 @@ describe('createVertexLabels', () => {
     expect(geometryDisposed).not.toHaveBeenCalled()
     expect(group.children).toHaveLength(0)
     labels[0]?.geometry.removeEventListener('dispose', geometryDisposed)
+  })
+
+  it('occludes rear vertex labels when 2D view lock is active and restores all when unlocked', () => {
+    const { group, update, dispose } = createVertexLabels()
+    const orthoCam = new OrthographicCamera(-5, 5, 5, -5, 0.1, 100)
+    orthoCam.position.set(10, 0, 0)
+    orthoCam.lookAt(0, 0, 0)
+    orthoCam.up.set(0, 1, 0)
+    orthoCam.updateMatrixWorld()
+    orthoCam.updateProjectionMatrix()
+
+    // 2D lock active along X
+    update(cubeVertices, orthoCam, true)
+
+    const visibleLabels = group.children.filter((child) => child.visible)
+    const hiddenLabels = group.children.filter((child) => !child.visible)
+
+    expect(visibleLabels).toHaveLength(4)
+    expect(hiddenLabels).toHaveLength(4)
+
+    // The front vertices (X = 0.5, closer to camera at +X) must be visible
+    for (const v of cubeVertices.filter((v) => v.point[0] === 0.5)) {
+      expect(group.getObjectByName(`vertex-label-${v.id}`)?.visible).toBe(true)
+    }
+    // The rear vertices (X = -0.5) must be hidden
+    for (const v of cubeVertices.filter((v) => v.point[0] === -0.5)) {
+      expect(group.getObjectByName(`vertex-label-${v.id}`)?.visible).toBe(false)
+    }
+
+    // When unlocked, all 8 labels are visible
+    update(cubeVertices, orthoCam, false)
+    expect(group.children.filter((child) => child.visible)).toHaveLength(8)
+
+    dispose()
   })
 })
