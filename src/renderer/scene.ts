@@ -96,7 +96,7 @@ export const createHarukaScene = (): HarukaScene => {
   ) => {
     const cam = activeCam ?? camera
     grid.update(cam, width, height, focusTarget, activePlane)
-    coordinateLabels.update(cam, focusTarget ?? defaultFocus, width, height)
+    coordinateLabels.update(cam, focusTarget ?? defaultFocus, width, height, activePlane)
   }
 
   return {

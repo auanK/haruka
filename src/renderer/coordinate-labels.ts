@@ -11,19 +11,25 @@ import {
   OrthographicCamera,
   PerspectiveCamera,
   PlaneGeometry,
+  Vector2,
   Vector3,
   type Camera,
 } from 'three'
+import type { ActiveGridPlane } from './adaptive-grid'
 import {
   chooseCoordinateLabelStride,
   computeWorldAnchoredCandidates,
   COORDINATE_LABEL_OFFSET,
+  deriveCoordinateAxisAnchor,
+  deriveCoordinateOriginAnchor,
   deriveVisibleAxisInterval,
   MAX_LABEL_CANDIDATES_PER_AXIS,
   type CoordinateAxis,
 } from './coordinate-stride'
 
 export const MAX_LABELS_PER_AXIS = MAX_LABEL_CANDIDATES_PER_AXIS
+export const COORDINATE_LABEL_HEIGHT_PX = 15
+const GLYPH_SCALE = COORDINATE_LABEL_HEIGHT_PX / 28
 const GLYPHS = '0123456789-.+e'
 // String(number) needs at most 24 characters, including sign and exponent.
 const MAX_GLYPHS_PER_LABEL = 24
@@ -44,7 +50,13 @@ export type CoordinateLabels = {
   readonly slots: readonly CoordinateLabelSlot[]
   readonly mesh: InstancedMesh<PlaneGeometry, MeshBasicMaterial>
   readonly texture: CanvasTexture
-  readonly update: (camera: Camera, focus: Vector3, width: number, height: number) => void
+  readonly update: (
+    camera: Camera,
+    focus: Vector3,
+    width: number,
+    height: number,
+    activePlane?: ActiveGridPlane,
+  ) => void
   readonly dispose: () => void
 }
 
@@ -77,7 +89,7 @@ export const createCoordinateLabels = (): CoordinateLabels => {
   texture.generateMipmaps = false
   texture.minFilter = LinearFilter
   const uniforms = {
-    uViewScale: { value: 1.0 },
+    uViewportSize: { value: new Vector2(800, 600) },
   }
   const material = new MeshBasicMaterial({
     map: texture,
@@ -86,12 +98,12 @@ export const createCoordinateLabels = (): CoordinateLabels => {
     depthWrite: false,
     opacity: 0.85,
   })
-  material.userData = { uniforms, viewScale: 1.0 }
+  material.userData = { uniforms }
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uViewScale = uniforms.uViewScale
+    shader.uniforms.uViewportSize = uniforms.uViewportSize
     shader.vertexShader =
       'attribute vec4 glyph;\n' +
-      'uniform float uViewScale;\n' +
+      'uniform vec2 uViewportSize;\n' +
       shader.vertexShader
         .replace(
           '#include <uv_vertex>',
@@ -101,9 +113,10 @@ export const createCoordinateLabels = (): CoordinateLabels => {
         .replace(
           '#include <project_vertex>',
           `
-        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-        mvPosition.xy += (position.xy * vec2(0.1 * glyph.z, 0.2) + vec2(glyph.y, 0.0)) * uViewScale;
-        gl_Position = projectionMatrix * mvPosition;`,
+        vec4 anchorClip = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        vec2 pixelOffset = position.xy * vec2(32.0 * glyph.z, 64.0) * ${GLYPH_SCALE.toFixed(6)} + vec2(glyph.y, 0.0);
+        anchorClip.xy += pixelOffset * (2.0 / uViewportSize) * anchorClip.w;
+        gl_Position = anchorClip;`,
         )
   }
   const capacity = (3 * MAX_LABELS_PER_AXIS + 1) * MAX_GLYPHS_PER_LABEL
@@ -139,26 +152,49 @@ export const createCoordinateLabels = (): CoordinateLabels => {
   const candidates: number[] = []
   const strides = [1, 1, 1]
   const origin = new Vector3(-COORDINATE_LABEL_OFFSET, COORDINATE_LABEL_OFFSET, 0)
+  const lastFocus = new Vector3(Number.NaN, Number.NaN, Number.NaN)
   let contentDirty = false
 
-  const show = (index: number, value: number) => {
+  const show = (
+    index: number,
+    value: number,
+    focus: Vector3,
+    activePlane: ActiveGridPlane = 'xz',
+  ) => {
     const slot = slots[index]!
     slot.used = true
-    if (slot.value === value) return
-    contentDirty = true
-    slot.value = value
-    slot.text = String(value)
-    const textWidth = context.measureText(slot.text).width
-    slot.squash = Math.min(1, 120 / Math.max(textWidth, 1))
-    for (let i = 0; i < slot.text.length; i++) {
-      const advance = advances[GLYPHS.indexOf(slot.text[i]!)]!
-      const end = context.measureText(slot.text.slice(0, i + 1)).width
-      slot.offsets[i] = (end - advance / 2 - textWidth / 2) * slot.squash * (0.4 / 128)
+    if (slot.value !== value) {
+      contentDirty = true
+      slot.value = value
+      slot.text = String(value)
+      const textWidth = context.measureText(slot.text).width
+      slot.squash = Math.min(1, 120 / Math.max(textWidth, 1))
+      for (let i = 0; i < slot.text.length; i++) {
+        const advance = advances[GLYPHS.indexOf(slot.text[i]!)]!
+        const end = context.measureText(slot.text.slice(0, i + 1)).width
+        slot.offsets[i] = (end - advance / 2 - textWidth / 2) * slot.squash * GLYPH_SCALE
+      }
     }
-    if (slot.axis === 'x') slot.position.set(value, COORDINATE_LABEL_OFFSET, 0)
-    else if (slot.axis === 'y') slot.position.set(COORDINATE_LABEL_OFFSET, value, 0)
-    else if (slot.axis === 'z') slot.position.set(0, COORDINATE_LABEL_OFFSET, value)
-    else slot.position.copy(origin)
+
+    const prevX = slot.position.x
+    const prevY = slot.position.y
+    const prevZ = slot.position.z
+
+    if (slot.axis) {
+      const anchor = deriveCoordinateAxisAnchor(slot.axis, activePlane, focus)
+      slot.position.set(
+        slot.axis === 'x' ? value : anchor.fixedX,
+        slot.axis === 'y' ? value : anchor.fixedY,
+        slot.axis === 'z' ? value : anchor.fixedZ,
+      )
+    } else {
+      const originAnchor = deriveCoordinateOriginAnchor(activePlane, focus)
+      slot.position.set(originAnchor.x, originAnchor.y, originAnchor.z)
+    }
+
+    if (slot.position.x !== prevX || slot.position.y !== prevY || slot.position.z !== prevZ) {
+      contentDirty = true
+    }
   }
 
   const updateBatch = (focus: Vector3) => {
@@ -166,8 +202,10 @@ export const createCoordinateLabels = (): CoordinateLabels => {
       if (slot.visible !== slot.used) contentDirty = true
       slot.visible = slot.used
     }
-    if (!contentDirty) return
+    const focusMoved = !focus.equals(lastFocus)
+    if (!contentDirty && !focusMoved) return
     contentDirty = false
+    lastFocus.copy(focus)
     // Keep GPU translations near the focus; Three cancels the world translation on the CPU.
     mesh.position.copy(focus)
     let count = 0
@@ -201,13 +239,14 @@ export const createCoordinateLabels = (): CoordinateLabels => {
     slots,
     mesh,
     texture,
-    update: (camera, focus, width, height) => {
+    update: (camera, focus, width, height, activePlane: ActiveGridPlane = 'xz') => {
       if (slots.length === 0) return
       for (const slot of slots) slot.used = false
       if (width <= 0 || height <= 0) {
         updateBatch(focus)
         return
       }
+      uniforms.uViewportSize.value.set(width, height)
       camera.updateMatrixWorld()
       frustum.setFromProjectionMatrix(
         projectionView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
@@ -222,11 +261,11 @@ export const createCoordinateLabels = (): CoordinateLabels => {
       )
       let halfHeight: number
       let aspect = 1
-      if (
+      const isOrtho =
         'isOrthographicCamera' in camera &&
         (camera as { isOrthographicCamera?: boolean }).isOrthographicCamera
-      ) {
-        const ortho = camera as OrthographicCamera
+      if (isOrtho) {
+        const ortho = camera as unknown as OrthographicCamera
         halfHeight = (ortho.top - ortho.bottom) / (2 * ortho.zoom)
         aspect = (ortho.right - ortho.left) / (ortho.top - ortho.bottom)
       } else {
@@ -235,17 +274,29 @@ export const createCoordinateLabels = (): CoordinateLabels => {
         aspect = persp.aspect
       }
       const pixelsPerUnit = height / (2 * halfHeight)
-      const viewScale = 48 / Math.max(pixelsPerUnit, 1e-4)
-      uniforms.uViewScale.value = viewScale
-      material.userData.viewScale = viewScale
       const span = Math.max(distance + 2 * halfHeight * Math.max(1, aspect), 1)
+
+      let activeAxes: readonly ('x' | 'y' | 'z')[]
+      if (activePlane === 'yz') {
+        activeAxes = ['y', 'z']
+      } else if (activePlane === 'xy') {
+        activeAxes = ['x', 'y']
+      } else if (activePlane === 'xz' && isOrtho) {
+        activeAxes = ['x', 'z']
+      } else {
+        activeAxes = ['x', 'y', 'z']
+      }
+
       for (let a = 0; a < axes.length; a++) {
         const axis = axes[a]!
+        if (!activeAxes.includes(axis)) continue
+        const anchor = deriveCoordinateAxisAnchor(axis, activePlane, focus)
         const interval = deriveVisibleAxisInterval(
           frustum,
           axis,
           focus[axis] - span,
           focus[axis] + span,
+          anchor,
         )
         if (!interval) continue
         const forward = camera.matrixWorld.elements[8 + a]!
@@ -259,7 +310,9 @@ export const createCoordinateLabels = (): CoordinateLabels => {
         const end = start + MAX_LABELS_PER_AXIS
         for (let i = start; i < end; i++) {
           const value = slots[i]!.value
-          if (value !== undefined && value !== 0 && candidates.includes(value)) show(i, value)
+          if (value !== undefined && value !== 0 && candidates.includes(value)) {
+            show(i, value, focus, activePlane)
+          }
         }
         let free = start
         for (const value of candidates) {
@@ -273,10 +326,12 @@ export const createCoordinateLabels = (): CoordinateLabels => {
           }
           if (retained) continue
           while (slots[free]!.used) free++
-          show(free, value)
+          show(free, value, focus, activePlane)
         }
       }
-      if (frustum.containsPoint(origin)) show(3 * MAX_LABELS_PER_AXIS, 0)
+      const originAnchor = deriveCoordinateOriginAnchor(activePlane, focus)
+      origin.set(originAnchor.x, originAnchor.y, originAnchor.z)
+      if (frustum.containsPoint(origin)) show(3 * MAX_LABELS_PER_AXIS, 0, focus, activePlane)
       updateBatch(focus)
     },
     dispose: () => {

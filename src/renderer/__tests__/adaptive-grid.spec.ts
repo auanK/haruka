@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   BufferAttribute,
+  OrthographicCamera,
   PerspectiveCamera,
   Vector3,
   Mesh,
@@ -164,21 +165,125 @@ describe('createAdaptiveGrid', () => {
 
     // Default or XZ plane (Lock Y or free)
     grid.update(camera, 800, 600, target, 'xz')
-    expect(groundMesh.position.toArray()).toEqual([2, 0, 4])
+    expect(groundMesh.position.toArray()).toEqual([2, 3, 4])
     expect(groundMesh.rotation.x).toBeCloseTo(-Math.PI / 2)
     expect(groundMesh.rotation.y).toBeCloseTo(0)
 
     // YZ plane (Lock X)
     grid.update(camera, 800, 600, target, 'yz')
-    expect(groundMesh.position.toArray()).toEqual([0, 3, 4])
+    expect(groundMesh.position.toArray()).toEqual([2, 3, 4])
     expect(groundMesh.rotation.x).toBeCloseTo(0)
     expect(groundMesh.rotation.y).toBeCloseTo(Math.PI / 2)
 
     // XY plane (Lock Z)
     grid.update(camera, 800, 600, target, 'xy')
-    expect(groundMesh.position.toArray()).toEqual([2, 3, 0])
+    expect(groundMesh.position.toArray()).toEqual([2, 3, 4])
     expect(groundMesh.rotation.x).toBeCloseTo(0)
     expect(groundMesh.rotation.y).toBeCloseTo(0)
+
+    grid.dispose()
+  })
+
+  it('positions reference plane slice at focus normal value without fixing to zero (Requirement 45)', () => {
+    const grid = createAdaptiveGrid()
+    const camera = new PerspectiveCamera(45, 1, 0.1, 5000)
+    camera.position.set(10, 2050, -30)
+    const focus = new Vector3(10, 2000, -30)
+    const groundMesh = grid.group.children.find((child) => child instanceof Mesh) as Mesh
+
+    // Free view -> plane position y === 2000
+    grid.update(camera, 800, 600, focus, 'xz')
+    expect(groundMesh.position.y).toBe(2000)
+
+    // Lock X -> plane position x === 10
+    grid.update(camera, 800, 600, focus, 'yz')
+    expect(groundMesh.position.x).toBe(10)
+
+    // Lock Y -> plane position y === 2000
+    grid.update(camera, 800, 600, focus, 'xz')
+    expect(groundMesh.position.y).toBe(2000)
+
+    // Lock Z -> plane position z === -30
+    grid.update(camera, 800, 600, focus, 'xy')
+    expect(groundMesh.position.z).toBe(-30)
+
+    grid.dispose()
+  })
+
+  it('anchors the Y axis line strictly at the global world origin X=0, Z=0 regardless of focus target', () => {
+    const grid = createAdaptiveGrid()
+    const camera = new PerspectiveCamera(45, 1, 0.1, 5000)
+    camera.position.set(100, 250, 300)
+    const target = new Vector3(100, 200, 300)
+
+    grid.update(camera, 800, 600, target)
+
+    const yAxisLine = grid.group.getObjectByName('adaptive-axis-y') as LineSegments
+    expect(yAxisLine.position.toArray()).toEqual([0, 0, 0])
+    grid.dispose()
+  })
+
+  it('disables radial fade in orthographic view and enables it in perspective view', () => {
+    const grid = createAdaptiveGrid()
+    const persp = new PerspectiveCamera(45, 1, 0.1, 1000)
+    persp.position.set(10, 10, 10)
+    grid.update(persp, 800, 600)
+    expect(grid.shaderMaterial.uniforms.uFadeEnabled?.value).toBe(1.0)
+
+    const ortho = new OrthographicCamera(-20, 20, 15, -15, 0.1, 1000)
+    ortho.position.set(0, 50, 0)
+    grid.update(ortho, 800, 600, new Vector3(0, 0, 0), 'xz')
+    expect(grid.shaderMaterial.uniforms.uFadeEnabled?.value).toBe(0.0)
+
+    grid.dispose()
+  })
+
+  it('calculates rectangular plane extent from exact orthographic frustum and recovers scale after zoom cycles', () => {
+    const grid = createAdaptiveGrid()
+    const ortho = new OrthographicCamera(-40, 40, 30, -30, 0.1, 1000)
+    ortho.zoom = 1
+    ortho.position.set(0, 50, 0)
+
+    grid.update(ortho, 800, 600, new Vector3(0, 0, 0), 'xz')
+    const groundMesh = grid.group.children.find((child) => child instanceof Mesh) as Mesh
+    // visibleWidth = 80 -> extentU = 80 * 1.3 = 104
+    // visibleHeight = 60 -> extentV = 60 * 1.3 = 78
+    expect(groundMesh.scale.x).toBeCloseTo(104)
+    expect(groundMesh.scale.y).toBeCloseTo(78)
+
+    // Zoom way out
+    ortho.zoom = 0.01
+    grid.update(ortho, 800, 600, new Vector3(0, 0, 0), 'xz')
+    expect(groundMesh.scale.x).toBeCloseTo(10400)
+    expect(groundMesh.scale.y).toBeCloseTo(7800)
+
+    // Zoom back in -> exactly restores scale without stale state
+    ortho.zoom = 1
+    grid.update(ortho, 800, 600, new Vector3(0, 0, 0), 'xz')
+    expect(groundMesh.scale.x).toBeCloseTo(104)
+    expect(groundMesh.scale.y).toBeCloseTo(78)
+
+    grid.dispose()
+  })
+
+  it('maintains absolute resource stability across extreme target movements (Requirement 51)', () => {
+    const grid = createAdaptiveGrid()
+    const camera = new PerspectiveCamera(45, 1, 0.1, 1e8)
+    const targets = [0, 200, 2000, 1e6, -1e6].map((y) => new Vector3(y, y, y))
+
+    const geom = grid.planeGeometry
+    const mat = grid.shaderMaterial
+    const yGeom = grid.yAxisGeometry
+    const yMat = grid.yAxisMaterial
+
+    for (const target of targets) {
+      camera.position.copy(target).addScalar(50)
+      grid.update(camera, 800, 600, target)
+      expect(grid.planeGeometry).toBe(geom)
+      expect(grid.shaderMaterial).toBe(mat)
+      expect(grid.yAxisGeometry).toBe(yGeom)
+      expect(grid.yAxisMaterial).toBe(yMat)
+    }
 
     grid.dispose()
   })

@@ -112,9 +112,27 @@ const acceptEdit = (result: StackEditResult) => {
   syncViewport()
 }
 
+const referenceSliceText = ref('')
+
+const updateReferenceSlice = () => {
+  if (!viewport || !('referenceFrame' in viewport) || !viewport.referenceFrame) {
+    referenceSliceText.value = ''
+    return
+  }
+  const frame = viewport.referenceFrame
+  const isLocked = manipulationState.value.lockedAxis !== null
+  const isDisplaced = Math.abs(frame.normalValue) >= 1e-3
+  if (isLocked || isDisplaced) {
+    referenceSliceText.value = frame.sliceLabel
+  } else {
+    referenceSliceText.value = ''
+  }
+}
+
 const locateCube = () => {
   if (manipulationState.value.phase === 'translation-draft') return
   viewport?.locateCube()
+  updateReferenceSlice()
 }
 
 let lastViewportPointer: readonly [number, number] | null = null
@@ -157,6 +175,7 @@ const toggleLock = (axis: Exclude<LockedAxis, null>) => {
   )
   setManipulation(next)
   viewport?.setViewAxisLock(next.lockedAxis)
+  updateReferenceSlice()
 }
 
 const setAxis = (axis: AxisConstraint) => {
@@ -275,6 +294,8 @@ onMounted(() => {
     ;(window as unknown as { __harukaViewport?: HarukaViewport }).__harukaViewport = viewport
   }
   syncViewport()
+  viewport?.controls?.addEventListener?.('change', updateReferenceSlice)
+  updateReferenceSlice()
 
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('pointermove', onPointerMove)
@@ -287,6 +308,7 @@ onBeforeUnmount(() => {
     cancelAnimationFrame(draftRafId)
     draftRafId = null
   }
+  viewport?.controls?.removeEventListener?.('change', updateReferenceSlice)
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('pointerdown', onPointerDown)
@@ -352,6 +374,15 @@ onBeforeUnmount(() => {
         >
           Z
         </button>
+      </div>
+      <div
+        v-if="referenceSliceText"
+        class="slice-indicator"
+        data-testid="slice-indicator"
+        role="status"
+        aria-live="polite"
+      >
+        {{ referenceSliceText }}
       </div>
       <div
         v-if="!isDraft"
@@ -514,6 +545,23 @@ main {
   line-height: 1.4;
   color: var(--color-text);
   pointer-events: none;
+  z-index: 10;
+}
+
+.slice-indicator {
+  position: absolute;
+  top: 36px;
+  right: 112px;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--color-interaction);
+  opacity: 0.85;
+  background: color-mix(in srgb, var(--color-panel) 80%, transparent);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+  pointer-events: none;
+  user-select: none;
   z-index: 10;
 }
 

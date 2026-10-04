@@ -16,6 +16,8 @@ import { createOrientationGizmo, type OrientationGizmo } from './orientation-giz
 import { DEFAULT_MAX_WEBGL_DPR, resolveRenderPixelRatio } from './pixel-ratio'
 import { createRenderScheduler, type RenderScheduler } from './render-scheduler'
 import { createHarukaScene, type HarukaScene } from './scene'
+import { deriveReferenceFrame, type ReferenceFrame } from './reference-frame'
+import { deriveOrthographicFit, projectVerticesToViewPlane } from './orthographic-fit'
 import { applyHarukaMatrixToObject } from './three-matrix'
 import { deriveTranslationDelta, toNdc } from './translation-drag'
 
@@ -45,6 +47,7 @@ export type HarukaViewport = Omit<HarukaScene, 'camera'> & {
   ) => Point3 | null
   readonly setManipulation: (data: { readonly selected: boolean; readonly active: boolean }) => void
   readonly setViewAxisLock: (lock: ViewAxisLock) => void
+  readonly referenceFrame: ReferenceFrame
   readonly dispose: () => void
 }
 
@@ -409,7 +412,7 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
         freeCameraSnapshot
           ? freeCameraSnapshot.position.distanceTo(freeCameraSnapshot.target)
           : camera.position.distanceTo(controls.target),
-        1e-4,
+        50,
       )
       if (activeLock === 'x') {
         orthographicCamera.position.set(center.x + distance, center.y, center.z)
@@ -419,6 +422,32 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
         orthographicCamera.position.set(center.x, center.y, center.z + distance)
       }
       orthographicCamera.lookAt(center)
+      orthographicCamera.updateMatrixWorld(true)
+
+      const cameraRight = new Vector3()
+      const cameraUp = new Vector3()
+      orthographicCamera.matrixWorld.extractBasis(cameraRight, cameraUp, new Vector3())
+      const bounds = projectVerticesToViewPlane(latestVertices, cameraRight, cameraUp, center)
+      const aspect =
+        lastCssWidth > 0 && lastCssHeight > 0
+          ? lastCssWidth / lastCssHeight
+          : orthographicCamera.right > orthographicCamera.left
+            ? (orthographicCamera.right - orthographicCamera.left) /
+              (orthographicCamera.top - orthographicCamera.bottom)
+            : 1
+      const fit = deriveOrthographicFit({
+        projectedWidth: bounds.width,
+        projectedHeight: bounds.height,
+        viewportAspect: aspect,
+        padding: 1.8,
+      })
+      orthographicCamera.top = fit.halfHeight
+      orthographicCamera.bottom = -fit.halfHeight
+      orthographicCamera.left = -fit.halfWidth
+      orthographicCamera.right = fit.halfWidth
+      orthographicCamera.zoom = 1
+      orthographicCamera.updateProjectionMatrix()
+
       controls.update()
       onControlsChange()
       return
@@ -516,6 +545,12 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
     dragDelta,
     setManipulation,
     setViewAxisLock,
+    get referenceFrame(): ReferenceFrame {
+      return deriveReferenceFrame({
+        lock: activeLock,
+        focus: controls.target,
+      })
+    },
     dispose: () => {
       controls.enabled = true
       scheduler.dispose()

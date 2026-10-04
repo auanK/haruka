@@ -55,6 +55,7 @@ const fragmentShader = /* glsl */ `
   uniform vec2 uMajorPhase;
   uniform vec2 uPlaidPhase;
   uniform float uFadeRadius;
+  uniform float uFadeEnabled;
   uniform vec3 uGroundColor;
   uniform vec3 uGridColor;
   uniform vec3 uMajorColor;
@@ -70,10 +71,13 @@ const fragmentShader = /* glsl */ `
       discard;
     }
 
-    float dist = length(pos);
-    float alpha = 1.0 - smoothstep(uFadeRadius * 0.65, uFadeRadius, dist);
-    if (alpha <= 0.0) {
-      discard;
+    float alpha = 1.0;
+    if (uFadeEnabled > 0.5) {
+      float dist = length(pos);
+      alpha = 1.0 - smoothstep(uFadeRadius * 0.65, uFadeRadius, dist);
+      if (alpha <= 0.0) {
+        discard;
+      }
     }
 
     // Minor grid lines
@@ -91,10 +95,10 @@ const fragmentShader = /* glsl */ `
     vec2 plaidGrid = abs(fract(plaidCoord - 0.5) - 0.5) / (dPos / (uGridStep * 10.0));
     float plaidLine = 1.0 - min(min(plaidGrid.x, plaidGrid.y), 1.0);
 
-    // In-plane Axis 1 line (pos.y + uCenter.y == 0)
+    // Global in-plane Axis 1 line (pos.y + uCenter.y == 0)
     float axis1 = 1.0 - min(abs(pos.y + uCenter.y) / dPos.y, 1.0);
 
-    // In-plane Axis 2 line (pos.x + uCenter.x == 0)
+    // Global in-plane Axis 2 line (pos.x + uCenter.x == 0)
     float axis2 = 1.0 - min(abs(pos.x + uCenter.x) / dPos.x, 1.0);
 
     // Balanced plaid checkerboard cells for didactic spatial depth
@@ -143,6 +147,7 @@ export const createAdaptiveGrid = (): AdaptiveGrid => {
     uMajorPhase: { value: new Vector2() },
     uPlaidPhase: { value: new Vector2() },
     uFadeRadius: { value: 50.0 },
+    uFadeEnabled: { value: 1.0 },
     uGroundColor: { value: new Color(viewportTheme.ground) },
     uGridColor: { value: new Color(viewportTheme.gridMinor) },
     uMajorColor: { value: new Color(viewportTheme.gridMajor) },
@@ -191,40 +196,58 @@ export const createAdaptiveGrid = (): AdaptiveGrid => {
     const target = focusTarget ?? defaultTarget
     const distance = Math.max(camera.position.distanceTo(target), 1)
 
-    // Calculate extent to conservatively cover visible ground frustum
-    const extent = Math.max(distance * 6, 20)
-    groundMesh.scale.set(extent, extent, 1)
+    const isOrtho =
+      'isOrthographicCamera' in camera &&
+      (camera as { isOrthographicCamera?: boolean }).isOrthographicCamera
+    let extentU: number
+    let extentV: number
+    if (isOrtho) {
+      const ortho = camera as unknown as OrthographicCamera
+      const visibleWidth = (ortho.right - ortho.left) / Math.max(ortho.zoom, 1e-4)
+      const visibleHeight = (ortho.top - ortho.bottom) / Math.max(ortho.zoom, 1e-4)
+      extentU = Math.max(visibleWidth * 1.3, 1e-4)
+      extentV = Math.max(visibleHeight * 1.3, 1e-4)
+      uniforms.uFadeEnabled.value = 0.0
+    } else {
+      const extent = Math.max(distance * 6, 20)
+      extentU = extent
+      extentV = extent
+      uniforms.uFadeEnabled.value = 1.0
+      uniforms.uFadeRadius.value = extent * 0.48
+    }
+    groundMesh.scale.set(extentU, extentV, 1)
+
+    // Position reference plane at the active target slice; keep global Y axis at world origin
+    groundMesh.position.set(target.x, target.y, target.z)
+    yAxisLine.position.set(0, 0, 0)
 
     let centerU: number
     let centerV: number
 
     if (activePlane === 'yz') {
-      groundMesh.position.set(0, target.y, target.z)
       groundMesh.rotation.set(0, Math.PI / 2, 0)
-      uniforms.uPlaneScale.value.set(-extent, extent)
+      uniforms.uPlaneScale.value.set(-extentU, extentV)
       centerU = target.z
       centerV = target.y
       uniforms.uAxis1Color.value.set(viewportTheme.axisZ)
       uniforms.uAxis2Color.value.set(viewportTheme.axisY)
       yAxisLine.visible = false
     } else if (activePlane === 'xy') {
-      groundMesh.position.set(target.x, target.y, 0)
       groundMesh.rotation.set(0, 0, 0)
-      uniforms.uPlaneScale.value.set(extent, extent)
+      uniforms.uPlaneScale.value.set(extentU, extentV)
       centerU = target.x
       centerV = target.y
       uniforms.uAxis1Color.value.set(viewportTheme.axisX)
       uniforms.uAxis2Color.value.set(viewportTheme.axisY)
       yAxisLine.visible = false
     } else {
-      groundMesh.position.set(target.x, 0, target.z)
       groundMesh.rotation.set(-Math.PI / 2, 0, 0)
-      uniforms.uPlaneScale.value.set(extent, -extent)
+      uniforms.uPlaneScale.value.set(extentU, -extentV)
       centerU = target.x
       centerV = target.z
       uniforms.uAxis1Color.value.set(viewportTheme.axisX)
       uniforms.uAxis2Color.value.set(viewportTheme.axisZ)
-      yAxisLine.visible = true
+      yAxisLine.visible = !isOrtho
     }
 
     // Grid step calculation derived from screen pixel density
@@ -258,7 +281,6 @@ export const createAdaptiveGrid = (): AdaptiveGrid => {
       (centerU % plaidStep) / plaidStep,
       (centerV % plaidStep) / plaidStep,
     )
-    uniforms.uFadeRadius.value = extent * 0.48
 
     // Update Y axis vertical extent without reallocation
     const yExtent = Math.max(Math.abs(camera.position.y) + distance * 2, 20)

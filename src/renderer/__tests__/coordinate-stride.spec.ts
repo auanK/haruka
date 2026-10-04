@@ -6,6 +6,8 @@ import {
   MAX_LABEL_CANDIDATES_PER_AXIS,
   next125Step,
   deriveVisibleAxisInterval,
+  deriveCoordinateAxisAnchor,
+  deriveCoordinateOriginAnchor,
 } from '../coordinate-stride'
 
 describe('chooseCoordinateLabelStride', () => {
@@ -14,22 +16,22 @@ describe('chooseCoordinateLabelStride', () => {
     expect(stride).toBe(1)
   })
 
-  it('chooses stride 2 when projected pixels per unit drops to 25px', () => {
-    const stride = chooseCoordinateLabelStride({ pixelsPerUnit: 25 })
+  it('chooses stride 2 when projected pixels per unit drops to 35px', () => {
+    const stride = chooseCoordinateLabelStride({ pixelsPerUnit: 35 })
     expect(stride).toBe(2)
   })
 
-  it('chooses stride 5 when projected pixels per unit drops to 9px', () => {
-    const stride = chooseCoordinateLabelStride({ pixelsPerUnit: 9 })
+  it('chooses stride 5 when projected pixels per unit drops to 12px', () => {
+    const stride = chooseCoordinateLabelStride({ pixelsPerUnit: 12 })
     expect(stride).toBe(5)
   })
 
   it('chooses 1, 2, 5 x 10^n progression for arbitrary zoom levels', () => {
     expect(chooseCoordinateLabelStride({ pixelsPerUnit: 100 })).toBe(1)
-    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 1.8 })).toBe(20)
-    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 0.7 })).toBe(50)
-    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 0.18 })).toBe(200)
-    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 0.018 })).toBe(2000)
+    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 3.5 })).toBe(20)
+    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 1.2 })).toBe(50)
+    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 0.35 })).toBe(200)
+    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 0.035 })).toBe(2000)
   })
 
   it('never returns stride less than 1 (integer coordinates only)', () => {
@@ -38,21 +40,21 @@ describe('chooseCoordinateLabelStride', () => {
   })
 
   it('demonstrates hysteresis preventing jitter near threshold', () => {
-    // For minSpacingDown = 32 and minSpacingUp = 48:
+    // For minSpacingDown = 54 and minSpacingUp = 70:
     // With currentStride = 1:
-    // At pixelsPerUnit = 35px: stays at stride 1
-    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 35, currentStride: 1 })).toBe(1)
-    // Drops to 30px (< 32): shifts to stride 2
-    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 30, currentStride: 1 })).toBe(2)
+    // At pixelsPerUnit = 60px: stays at stride 1
+    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 60, currentStride: 1 })).toBe(1)
+    // Drops to 50px (< 54): shifts to stride 2
+    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 50, currentStride: 1 })).toBe(2)
 
     // With currentStride = 2:
-    // Now pixelsPerUnit moves back up to 35px:
-    // With hysteresis, since 35px <= 48px, it STAYS at stride 2!
-    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 35, currentStride: 2 })).toBe(2)
-    // Even at 45px, it stays at stride 2:
-    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 45, currentStride: 2 })).toBe(2)
-    // Only when pixelsPerUnit exceeds 48px does it shift back down to stride 1:
-    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 50, currentStride: 2 })).toBe(1)
+    // Now pixelsPerUnit moves back up to 60px:
+    // With hysteresis, since 60px <= 70px, it STAYS at stride 2!
+    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 60, currentStride: 2 })).toBe(2)
+    // Even at 65px, it stays at stride 2:
+    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 65, currentStride: 2 })).toBe(2)
+    // Only when pixelsPerUnit exceeds 70px does it shift back down to stride 1:
+    expect(chooseCoordinateLabelStride({ pixelsPerUnit: 75, currentStride: 2 })).toBe(1)
   })
 
   it('guarantees identical stride for microscopic camera variations', () => {
@@ -160,5 +162,46 @@ describe('deriveVisibleAxisInterval', () => {
     expect(interval.max).toBeGreaterThan(100000)
     expect(deriveVisibleAxisInterval(frustum, 'y', -100, 100)).toBeNull()
     expect(deriveVisibleAxisInterval(frustum, 'z', -100, 100)).toBeNull()
+  })
+})
+
+describe('deriveCoordinateAxisAnchor and deriveCoordinateOriginAnchor', () => {
+  it('derives exact zero-line fixed coordinates for XZ plane', () => {
+    const focus = { x: 50, y: 10, z: -30 }
+    const xAnchor = deriveCoordinateAxisAnchor('x', 'xz', focus, 0.16)
+    expect(xAnchor).toEqual({ fixedX: 0, fixedY: 10.16, fixedZ: 0 })
+
+    const zAnchor = deriveCoordinateAxisAnchor('z', 'xz', focus, 0.16)
+    expect(zAnchor).toEqual({ fixedX: 0, fixedY: 10.16, fixedZ: 0 })
+
+    const yAnchor = deriveCoordinateAxisAnchor('y', 'xz', focus, 0.16)
+    expect(yAnchor).toEqual({ fixedX: 0.16, fixedY: 0, fixedZ: 0 })
+
+    const origin = deriveCoordinateOriginAnchor('xz', focus, 0.16)
+    expect(origin).toEqual({ x: -0.16, y: 10.16, z: 0 })
+  })
+
+  it('derives exact zero-line fixed coordinates for YZ plane', () => {
+    const focus = { x: 2, y: 500, z: -700 }
+    const yAnchor = deriveCoordinateAxisAnchor('y', 'yz', focus, 0.16)
+    expect(yAnchor).toEqual({ fixedX: 2, fixedY: 0, fixedZ: 0.16 })
+
+    const zAnchor = deriveCoordinateAxisAnchor('z', 'yz', focus, 0.16)
+    expect(zAnchor).toEqual({ fixedX: 2, fixedY: 0.16, fixedZ: 0 })
+
+    const origin = deriveCoordinateOriginAnchor('yz', focus, 0.16)
+    expect(origin).toEqual({ x: 2, y: 0.16, z: -0.16 })
+  })
+
+  it('derives exact zero-line fixed coordinates for XY plane', () => {
+    const focus = { x: 800, y: -600, z: -3 }
+    const xAnchor = deriveCoordinateAxisAnchor('x', 'xy', focus, 0.16)
+    expect(xAnchor).toEqual({ fixedX: 0, fixedY: 0.16, fixedZ: -3 })
+
+    const yAnchor = deriveCoordinateAxisAnchor('y', 'xy', focus, 0.16)
+    expect(yAnchor).toEqual({ fixedX: 0.16, fixedY: 0, fixedZ: -3 })
+
+    const origin = deriveCoordinateOriginAnchor('xy', focus, 0.16)
+    expect(origin).toEqual({ x: -0.16, y: 0.16, z: -3 })
   })
 })

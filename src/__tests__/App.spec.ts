@@ -64,6 +64,18 @@ vi.mock('../renderer/viewport', async () => {
         ),
         setManipulation: vi.fn<HarukaViewport['setManipulation']>(),
         setViewAxisLock: vi.fn<HarukaViewport['setViewAxisLock']>(),
+        controls: {
+          addEventListener: vi.fn<(type: string, listener: () => void) => void>(),
+          removeEventListener: vi.fn<(type: string, listener: () => void) => void>(),
+          target: new Vector3(),
+        },
+        referenceFrame: {
+          plane: 'xz',
+          normalAxis: 'y',
+          normalValue: 0,
+          origin: [0, 0, 0],
+          sliceLabel: 'XZ · Y = 0',
+        },
         dispose: vi.fn<() => void>(() => canvas.remove()),
       } as unknown as HarukaViewport
     }),

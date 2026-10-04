@@ -11,7 +11,7 @@ import {
   WebGLRenderer,
 } from 'three'
 import { transformCubeVertices, type CubeVertex } from '../../app/didactic-cube'
-import { multiply, toMatrix, transformPoint } from '../../domain'
+import { composeTransforms, multiply, toMatrix, transformPoint } from '../../domain'
 import { mockCanvas2D } from './canvas-2d'
 import {
   MAX_WEBGL_DPR,
@@ -917,6 +917,216 @@ describe('direct manipulation boundary', () => {
       vi.runAllTimers()
       expect(gridMesh.rotation.x).toBeCloseTo(-Math.PI / 2)
       expect(labelGroup.children.filter((c) => c.visible)).toHaveLength(8)
+
+      viewport.dispose()
+    })
+
+    it('keeps reference plane at controls.target during cube sync without dragging (Requirement 46)', () => {
+      const viewport = mount()
+      const gridMesh = viewport.grid.group.children.find((child) => child instanceof Mesh) as Mesh
+      viewport.controls.target.set(0, 2000, 0)
+      viewport.requestRender()
+      vi.runAllTimers()
+
+      // Sync cube moving from 2000 to 2100 to 5000
+      for (const y of [2000, 2100, 5000]) {
+        viewport.sync({
+          matrix: toMatrix({ type: 'translation', x: 0, y, z: 0 }),
+          vertices: transformCubeVertices(toMatrix({ type: 'translation', x: 0, y, z: 0 })),
+        })
+        vi.runAllTimers()
+        expect(gridMesh.position.y).toBe(2000)
+      }
+
+      viewport.dispose()
+    })
+
+    it('performs center and 2D fit for orthographic lock with vertices in comfortable NDC bounds (Requirement 53, 54)', () => {
+      const viewport = mount()
+
+      for (const lock of ['x', 'y', 'z'] as const) {
+        // Complex transform: non-uniform scale + rotation + shear
+        const transform = composeTransforms([
+          { type: 'rotation', axis: 'y', angle: Math.PI / 6 },
+          { type: 'shear', kxy: 0.3, kxz: 0, kyx: 0, kyz: 0, kzx: 0, kzy: 0 },
+          { type: 'scale', x: 4, y: 2, z: 3 },
+          { type: 'translation', x: 500, y: 2000, z: -900 },
+        ])
+        const vertices = transformCubeVertices(transform)
+        viewport.sync({ matrix: transform, vertices })
+
+        viewport.setViewAxisLock(lock)
+        // Simulate arbitrary user zoom prior to locate
+        ;(viewport.camera as OrthographicCamera).zoom = 0.05
+        viewport.camera.updateProjectionMatrix()
+
+        viewport.locateCube()
+        vi.runAllTimers()
+
+        expect(viewport.camera).toBeInstanceOf(OrthographicCamera)
+        const ortho = viewport.camera as OrthographicCamera
+        ortho.updateMatrixWorld()
+
+        // All 8 vertices must project into comfortable NDC space (|ndc| < 0.8)
+        let maxNdc = 0
+        for (const vertex of vertices) {
+          const projected = new Vector3(...vertex.point).project(ortho)
+          expect(Math.abs(projected.x)).toBeLessThan(0.8)
+          expect(Math.abs(projected.y)).toBeLessThan(0.8)
+          maxNdc = Math.max(maxNdc, Math.abs(projected.x), Math.abs(projected.y))
+        }
+        // And not be microscopically tiny (should occupy >= 30% of NDC space)
+        expect(maxNdc).toBeGreaterThanOrEqual(0.3)
+      }
+
+      viewport.dispose()
+    })
+
+    it('yields identical screen extent for huge translation after locate (Requirement 55)', () => {
+      const viewport = mount()
+      viewport.setViewAxisLock('z')
+
+      // Unit cube at origin
+      viewport.sync({
+        matrix: toMatrix({ type: 'translation', x: 0, y: 0, z: 0 }),
+        vertices: transformCubeVertices(toMatrix({ type: 'translation', x: 0, y: 0, z: 0 })),
+      })
+      viewport.locateCube()
+      vi.runAllTimers()
+      const ortho = viewport.camera as OrthographicCamera
+      const originHeight = ortho.top - ortho.bottom
+
+      // Same unit cube translated to [1e6, 2e6, -3e6]
+      const hugeVertices = transformCubeVertices(
+        toMatrix({ type: 'translation', x: 1e6, y: 2e6, z: -3e6 }),
+      )
+      viewport.sync({
+        matrix: toMatrix({ type: 'translation', x: 1e6, y: 2e6, z: -3e6 }),
+        vertices: hugeVertices,
+      })
+      viewport.locateCube()
+      vi.runAllTimers()
+      const hugeHeight = ortho.top - ortho.bottom
+
+      expect(hugeHeight).toBeCloseTo(originHeight, 3)
+      viewport.dispose()
+    })
+
+    it('safely handles degenerate collapsed geometry in locateCube (Requirement 56)', () => {
+      const viewport = mount()
+      viewport.setViewAxisLock('x')
+
+      const flatVertices = transformCubeVertices(toMatrix({ type: 'scale', x: 0, y: 0, z: 0 }))
+      viewport.sync({
+        matrix: toMatrix({ type: 'scale', x: 0, y: 0, z: 0 }),
+        vertices: flatVertices,
+      })
+
+      viewport.locateCube()
+      vi.runAllTimers()
+
+      const ortho = viewport.camera as OrthographicCamera
+      expect(Number.isFinite(ortho.top)).toBe(true)
+      expect(Number.isFinite(ortho.bottom)).toBe(true)
+      expect(Number.isFinite(ortho.left)).toBe(true)
+      expect(Number.isFinite(ortho.right)).toBe(true)
+      expect(ortho.top).toBeGreaterThan(ortho.bottom)
+
+      viewport.dispose()
+    })
+
+    it('preserves initial free camera snapshot across multiple locks and locates (Requirement 57)', () => {
+      const viewport = mount()
+      const initialPos = viewport.camera.position.clone()
+      const initialTarget = viewport.controls.target.clone()
+
+      viewport.setViewAxisLock('x')
+      viewport.locateCube()
+
+      viewport.setViewAxisLock('y')
+      viewport.locateCube()
+
+      viewport.setViewAxisLock(null)
+
+      expect(viewport.camera.position.toArray()).toEqual(initialPos.toArray())
+      expect(viewport.controls.target.toArray()).toEqual(initialTarget.toArray())
+
+      viewport.dispose()
+    })
+
+    it('provides semantic slice label via referenceFrame property (Requirement 58)', () => {
+      const viewport = mount()
+      viewport.controls.target.set(100, 200, 2000)
+      viewport.setViewAxisLock('z')
+      vi.runAllTimers()
+
+      const frame = viewport.referenceFrame
+      expect(frame).toBeDefined()
+      expect(frame.plane).toBe('xy')
+      expect(frame.normalAxis).toBe('z')
+      expect(frame.normalValue).toBe(2000)
+      expect(frame.sliceLabel).toBe('XY · Z = 2000')
+
+      viewport.dispose()
+    })
+
+    it('positions reference plane and updates slice label in free view for Y=200 and Y=2000 (Smoke 60, 61)', () => {
+      const viewport = mount()
+      const gridMesh = viewport.grid.group.children.find((child) => child instanceof Mesh) as Mesh
+
+      for (const y of [200, 2000]) {
+        viewport.sync({
+          matrix: toMatrix({ type: 'translation', x: 0, y, z: 0 }),
+          vertices: transformCubeVertices(toMatrix({ type: 'translation', x: 0, y, z: 0 })),
+        })
+        viewport.locateCube()
+        vi.runAllTimers()
+
+        expect(viewport.controls.target.y).toBeCloseTo(y)
+        expect(gridMesh.position.y).toBeCloseTo(y)
+        expect(viewport.referenceFrame.sliceLabel).toBe(`XZ · Y = ${y}`)
+      }
+
+      viewport.dispose()
+    })
+
+    it('recovers from extreme zoom-out during lock to comfortable bounds on Locate Cube (Smoke 67)', () => {
+      const viewport = mount()
+      viewport.setViewAxisLock('z')
+      const ortho = viewport.camera as OrthographicCamera
+
+      // Extreme zoom out
+      ortho.zoom = 0.0001
+      ortho.updateProjectionMatrix()
+      vi.runAllTimers()
+
+      viewport.locateCube()
+      vi.runAllTimers()
+
+      expect(ortho.zoom).toBe(1)
+      const visibleHeight = ortho.top - ortho.bottom
+      expect(visibleHeight).toBeGreaterThan(1)
+      expect(visibleHeight).toBeLessThan(10)
+
+      viewport.dispose()
+    })
+
+    it('recovers from extensive camera panning on Locate Cube (Smoke 68)', () => {
+      const viewport = mount()
+      viewport.setViewAxisLock('x')
+
+      // Pan camera far away
+      viewport.controls.target.set(9999, -5000, 8888)
+      viewport.requestRender()
+      vi.runAllTimers()
+
+      viewport.locateCube()
+      vi.runAllTimers()
+
+      // Target centered on cube origin
+      expect(viewport.controls.target.x).toBeCloseTo(0)
+      expect(viewport.controls.target.y).toBeCloseTo(0)
+      expect(viewport.controls.target.z).toBeCloseTo(0)
 
       viewport.dispose()
     })
