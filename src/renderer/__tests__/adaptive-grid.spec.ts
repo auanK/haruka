@@ -163,49 +163,69 @@ describe('createAdaptiveGrid', () => {
 
     const groundMesh = grid.group.children.find((child) => child instanceof Mesh) as Mesh
 
-    // Default or XZ plane (Lock Y or free)
+    // Default or XZ plane (Lock Y or free): in-plane X, Z follow target; normal Y is 0
     grid.update(camera, 800, 600, target, 'xz')
-    expect(groundMesh.position.toArray()).toEqual([2, 3, 4])
+    expect(groundMesh.position.toArray()).toEqual([2, 0, 4])
     expect(groundMesh.rotation.x).toBeCloseTo(-Math.PI / 2)
     expect(groundMesh.rotation.y).toBeCloseTo(0)
 
-    // YZ plane (Lock X)
+    // YZ plane (Lock X): in-plane Y, Z follow target; normal X is 0
     grid.update(camera, 800, 600, target, 'yz')
-    expect(groundMesh.position.toArray()).toEqual([2, 3, 4])
+    expect(groundMesh.position.toArray()).toEqual([0, 3, 4])
     expect(groundMesh.rotation.x).toBeCloseTo(0)
     expect(groundMesh.rotation.y).toBeCloseTo(Math.PI / 2)
 
-    // XY plane (Lock Z)
+    // XY plane (Lock Z): in-plane X, Y follow target; normal Z is 0
     grid.update(camera, 800, 600, target, 'xy')
-    expect(groundMesh.position.toArray()).toEqual([2, 3, 4])
+    expect(groundMesh.position.toArray()).toEqual([2, 3, 0])
     expect(groundMesh.rotation.x).toBeCloseTo(0)
     expect(groundMesh.rotation.y).toBeCloseTo(0)
 
     grid.dispose()
   })
 
-  it('positions reference plane slice at focus normal value without fixing to zero (Requirement 45)', () => {
+  it('re-centers finite mesh in-plane but keeps ground plane normal at 0 during pan in free/perspective view (RED 26)', () => {
     const grid = createAdaptiveGrid()
     const camera = new PerspectiveCamera(45, 1, 0.1, 5000)
-    camera.position.set(10, 2050, -30)
-    const focus = new Vector3(10, 2000, -30)
+    camera.position.set(100, 100, -200)
+    const target = new Vector3(100, 50, -200)
     const groundMesh = grid.group.children.find((child) => child instanceof Mesh) as Mesh
 
-    // Free view -> plane position y === 2000
-    grid.update(camera, 800, 600, focus, 'xz')
-    expect(groundMesh.position.y).toBe(2000)
+    grid.update(camera, 800, 600, target, 'xz')
+    expect(groundMesh.position.x).toBeCloseTo(100)
+    expect(groundMesh.position.z).toBeCloseTo(-200)
+    expect(groundMesh.position.y).toBe(0)
 
-    // Lock X -> plane position x === 10
-    grid.update(camera, 800, 600, focus, 'yz')
-    expect(groundMesh.position.x).toBe(10)
+    // Vertical pan target: 50 -> 500 does NOT lift the floor
+    target.set(100, 500, -200)
+    camera.position.set(100, 550, -200)
+    grid.update(camera, 800, 600, target, 'xz')
+    expect(groundMesh.position.x).toBeCloseTo(100)
+    expect(groundMesh.position.z).toBeCloseTo(-200)
+    expect(groundMesh.position.y).toBe(0)
 
-    // Lock Y -> plane position y === 2000
-    grid.update(camera, 800, 600, focus, 'xz')
-    expect(groundMesh.position.y).toBe(2000)
+    grid.dispose()
+  })
 
-    // Lock Z -> plane position z === -30
-    grid.update(camera, 800, 600, focus, 'xy')
-    expect(groundMesh.position.z).toBe(-30)
+  it('preserves grid world phase modulo global coordinates after large pan (RED 27)', () => {
+    const grid = createAdaptiveGrid()
+    const camera = new PerspectiveCamera(45, 4 / 3, 0.1, 1000)
+    const targetA = new Vector3(0, 0, 0)
+    camera.position.set(0, 10, 10)
+    grid.update(camera, 800, 600, targetA, 'xz')
+    const step = grid.shaderMaterial.uniforms.uGridStep!.value
+    const groundMesh = grid.group.children.find((child) => child instanceof Mesh) as Mesh
+
+    // Pan camera and navigation target by a non-integer offset
+    const targetB = new Vector3(10003, 50, -5007)
+    camera.position.set(10003, 60, -4997)
+    grid.update(camera, 800, 600, targetB, 'xz')
+
+    const uniforms = grid.shaderMaterial.uniforms
+    const minorPhase = uniforms.uMinorPhase!.value
+    expect(minorPhase.x).toBeCloseTo((10003 % step) / step)
+    expect(minorPhase.y).toBeCloseTo((-5007 % step) / step)
+    expect(groundMesh.position.y).toBe(0)
 
     grid.dispose()
   })

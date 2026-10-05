@@ -2,12 +2,7 @@ import type { ViewAxisLock } from './viewport'
 
 export type ReferencePlane = 'xz' | 'yz' | 'xy'
 
-export type ReferenceFrameInput = {
-  readonly lock: ViewAxisLock
-  readonly focus:
-    | { readonly x: number; readonly y: number; readonly z: number }
-    | readonly [number, number, number]
-}
+export type ReferenceFrameInput = ViewAxisLock | { readonly lock: ViewAxisLock }
 
 export type ReferenceFrame = {
   readonly plane: ReferencePlane
@@ -15,19 +10,6 @@ export type ReferenceFrame = {
   readonly normalValue: number
   readonly origin: readonly [number, number, number]
   readonly sliceLabel: string
-}
-
-const getCoord = (
-  focus:
-    | { readonly x: number; readonly y: number; readonly z: number }
-    | readonly [number, number, number],
-  axis: 'x' | 'y' | 'z',
-): number => {
-  if (Array.isArray(focus)) {
-    return axis === 'x' ? focus[0]! : axis === 'y' ? focus[1]! : focus[2]!
-  }
-  const obj = focus as { readonly x: number; readonly y: number; readonly z: number }
-  return obj[axis]
 }
 
 export const formatSliceIndicator = (frame: ReferenceFrame, precision = 4): string => {
@@ -40,36 +22,26 @@ export const formatSliceIndicator = (frame: ReferenceFrame, precision = 4): stri
   return `${planeStr} · ${axisStr} = ${formattedVal}`
 }
 
-export const deriveReferenceFrame = (input: ReferenceFrameInput): ReferenceFrame => {
-  const { lock, focus } = input
-  const x = getCoord(focus, 'x')
-  const y = getCoord(focus, 'y')
-  const z = getCoord(focus, 'z')
+export const deriveReferenceFrame = (input: ReferenceFrameInput = null): ReferenceFrame => {
+  const lock = typeof input === 'object' && input !== null ? input.lock : input
 
   let plane: ReferencePlane
   let normalAxis: 'x' | 'y' | 'z'
-  let normalValue: number
 
   if (lock === 'x') {
     plane = 'yz'
     normalAxis = 'x'
-    normalValue = x
-  } else if (lock === 'y') {
-    plane = 'xz'
-    normalAxis = 'y'
-    normalValue = y
   } else if (lock === 'z') {
     plane = 'xy'
     normalAxis = 'z'
-    normalValue = z
   } else {
-    // Free view: floor slice passes through camera target elevation Y
+    // Free view (null) or Lock Y: floor slice XZ, normal Y
     plane = 'xz'
     normalAxis = 'y'
-    normalValue = y
   }
 
-  const origin: readonly [number, number, number] = [x, y, z]
+  const normalValue = 0
+  const origin: readonly [number, number, number] = [0, 0, 0]
   const sliceLabel = formatSliceIndicator({
     plane,
     normalAxis,

@@ -92,7 +92,7 @@ export const renderViewport = (
   gizmo: Pick<OrientationGizmo, 'scene' | 'camera' | 'updateOrientation'>,
   width: number,
   height: number,
-  focusTarget?: Vector3,
+  navigationTarget?: Vector3,
   cameraDirty = true,
   activeCamera?: Camera,
   activePlane?: 'xz' | 'yz' | 'xy',
@@ -106,11 +106,11 @@ export const renderViewport = (
 
   if (cameraDirty) {
     if (activePlane !== undefined) {
-      graph.updateScene(width, height, focusTarget, cam, activePlane)
+      graph.updateScene(width, height, navigationTarget, cam, activePlane)
     } else if (cam && cam !== graph.camera) {
-      graph.updateScene(width, height, focusTarget, cam)
+      graph.updateScene(width, height, navigationTarget, cam)
     } else {
-      graph.updateScene(width, height, focusTarget)
+      graph.updateScene(width, height, navigationTarget)
     }
   }
 
@@ -546,10 +546,7 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
     setManipulation,
     setViewAxisLock,
     get referenceFrame(): ReferenceFrame {
-      return deriveReferenceFrame({
-        lock: activeLock,
-        focus: controls.target,
-      })
+      return deriveReferenceFrame(activeLock)
     },
     dispose: () => {
       controls.enabled = true

@@ -293,11 +293,11 @@ describe('world-space coordinate glyph batch', () => {
     expect(zPan.length).toBeGreaterThan(0)
 
     for (const slot of yPan) {
-      expect(slot.position.x).toBe(2)
+      expect(slot.position.x).toBe(0)
       expect(slot.position.z).toBeCloseTo(0.16)
     }
     for (const slot of zPan) {
-      expect(slot.position.x).toBe(2)
+      expect(slot.position.x).toBe(0)
       expect(slot.position.y).toBeCloseTo(0.16)
     }
 
@@ -325,20 +325,26 @@ describe('world-space coordinate glyph batch', () => {
 
     for (const slot of xPan) {
       expect(slot.position.y).toBeCloseTo(0.16)
-      expect(slot.position.z).toBe(-3)
+      expect(slot.position.z).toBe(0)
     }
     for (const slot of yPan) {
       expect(slot.position.x).toBeCloseTo(0.16)
-      expect(slot.position.z).toBe(-3)
+      expect(slot.position.z).toBe(0)
     }
 
     labels.dispose()
   })
 
-  it('updates normal coordinate when reference slice changes without moving in-plane zero coordinates (RED 19)', () => {
+  it('keeps labels anchored to world axes Y=0 during vertical camera pan in XZ view (RED 28)', () => {
     const labels = createCoordinateLabels()
-    const focus = new Vector3(0, 5, 0)
+    const focus = new Vector3(0, 0, 0)
     const camera = cameraAt(focus)
+    labels.update(camera, focus, 800, 600, 'xz')
+
+    // Pan camera navigation target to Y = 5
+    focus.set(0, 5, 0)
+    camera.position.set(0, 10, 10)
+    camera.lookAt(focus)
     labels.update(camera, focus, 800, 600, 'xz')
 
     const xLabels = labels.slots.filter((s) => s.visible && s.axis === 'x')
@@ -347,18 +353,18 @@ describe('world-space coordinate glyph batch', () => {
     expect(zLabels.length).toBeGreaterThan(0)
 
     for (const slot of xLabels) {
-      expect(slot.position.y).toBeCloseTo(5.16)
+      expect(slot.position.y).toBeCloseTo(0.16)
       expect(slot.position.z).toBe(0)
     }
     for (const slot of zLabels) {
-      expect(slot.position.y).toBeCloseTo(5.16)
+      expect(slot.position.y).toBeCloseTo(0.16)
       expect(slot.position.x).toBe(0)
     }
 
     labels.dispose()
   })
 
-  it('recalculates position and instance transform on slice change even when candidate value is retained (RED 20)', () => {
+  it('keeps label world positions invariant on pan even when candidate value is retained (RED 28)', () => {
     const labels = createCoordinateLabels()
     const focus = new Vector3(0, 0, 0)
     const camera = cameraAt(focus)
@@ -368,14 +374,14 @@ describe('world-space coordinate glyph batch', () => {
     expect(x1).toBeDefined()
     expect(x1.position.y).toBeCloseTo(0.16)
 
-    // Slice changes to Y = 5, camera moves with slice
+    // Pan camera vertically to Y = 5; label position on X axis must stay at Y = 0.16
     focus.set(0, 5, 0)
     camera.position.set(0, 10, 10)
     camera.lookAt(focus)
     labels.update(camera, focus, 800, 600, 'xz')
 
     expect(x1.value).toBe(1)
-    expect(x1.position.y).toBeCloseTo(5.16)
+    expect(x1.position.y).toBeCloseTo(0.16)
 
     labels.dispose()
   })

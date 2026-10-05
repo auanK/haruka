@@ -166,42 +166,57 @@ describe('deriveVisibleAxisInterval', () => {
 })
 
 describe('deriveCoordinateAxisAnchor and deriveCoordinateOriginAnchor', () => {
-  it('derives exact zero-line fixed coordinates for XZ plane', () => {
+  it('derives exact zero-line fixed coordinates on global axes for XZ plane (RED 28)', () => {
     const focus = { x: 50, y: 10, z: -30 }
     const xAnchor = deriveCoordinateAxisAnchor('x', 'xz', focus, 0.16)
-    expect(xAnchor).toEqual({ fixedX: 0, fixedY: 10.16, fixedZ: 0 })
+    expect(xAnchor).toEqual({ fixedX: 0, fixedY: 0.16, fixedZ: 0 })
 
     const zAnchor = deriveCoordinateAxisAnchor('z', 'xz', focus, 0.16)
-    expect(zAnchor).toEqual({ fixedX: 0, fixedY: 10.16, fixedZ: 0 })
+    expect(zAnchor).toEqual({ fixedX: 0, fixedY: 0.16, fixedZ: 0 })
 
     const yAnchor = deriveCoordinateAxisAnchor('y', 'xz', focus, 0.16)
     expect(yAnchor).toEqual({ fixedX: 0.16, fixedY: 0, fixedZ: 0 })
 
     const origin = deriveCoordinateOriginAnchor('xz', focus, 0.16)
-    expect(origin).toEqual({ x: -0.16, y: 10.16, z: 0 })
+    expect(origin).toEqual({ x: -0.16, y: 0.16, z: 0 })
   })
 
-  it('derives exact zero-line fixed coordinates for YZ plane', () => {
+  it('derives exact zero-line fixed coordinates on global axes for YZ plane (RED 28)', () => {
     const focus = { x: 2, y: 500, z: -700 }
     const yAnchor = deriveCoordinateAxisAnchor('y', 'yz', focus, 0.16)
-    expect(yAnchor).toEqual({ fixedX: 2, fixedY: 0, fixedZ: 0.16 })
+    expect(yAnchor).toEqual({ fixedX: 0, fixedY: 0, fixedZ: 0.16 })
 
     const zAnchor = deriveCoordinateAxisAnchor('z', 'yz', focus, 0.16)
-    expect(zAnchor).toEqual({ fixedX: 2, fixedY: 0.16, fixedZ: 0 })
+    expect(zAnchor).toEqual({ fixedX: 0, fixedY: 0.16, fixedZ: 0 })
 
     const origin = deriveCoordinateOriginAnchor('yz', focus, 0.16)
-    expect(origin).toEqual({ x: 2, y: 0.16, z: -0.16 })
+    expect(origin).toEqual({ x: 0, y: 0.16, z: -0.16 })
   })
 
-  it('derives exact zero-line fixed coordinates for XY plane', () => {
+  it('derives exact zero-line fixed coordinates on global axes for XY plane (RED 28)', () => {
     const focus = { x: 800, y: -600, z: -3 }
     const xAnchor = deriveCoordinateAxisAnchor('x', 'xy', focus, 0.16)
-    expect(xAnchor).toEqual({ fixedX: 0, fixedY: 0.16, fixedZ: -3 })
+    expect(xAnchor).toEqual({ fixedX: 0, fixedY: 0.16, fixedZ: 0 })
 
     const yAnchor = deriveCoordinateAxisAnchor('y', 'xy', focus, 0.16)
-    expect(yAnchor).toEqual({ fixedX: 0.16, fixedY: 0, fixedZ: -3 })
+    expect(yAnchor).toEqual({ fixedX: 0.16, fixedY: 0, fixedZ: 0 })
 
     const origin = deriveCoordinateOriginAnchor('xy', focus, 0.16)
-    expect(origin).toEqual({ x: -0.16, y: 0.16, z: -3 })
+    expect(origin).toEqual({ x: -0.16, y: 0.16, z: 0 })
+  })
+
+  it('pan target does not modify fixed coordinates of anchors (RED 28)', () => {
+    const focusA = { x: 0, y: 0, z: 0 }
+    const focusB = { x: 10, y: -5.4305, z: 20 }
+    for (const plane of ['xz', 'yz', 'xy'] as const) {
+      for (const axis of ['x', 'y', 'z'] as const) {
+        expect(deriveCoordinateAxisAnchor(axis, plane, focusA)).toEqual(
+          deriveCoordinateAxisAnchor(axis, plane, focusB),
+        )
+      }
+      expect(deriveCoordinateOriginAnchor(plane, focusA)).toEqual(
+        deriveCoordinateOriginAnchor(plane, focusB),
+      )
+    }
   })
 })

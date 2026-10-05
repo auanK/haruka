@@ -921,7 +921,7 @@ describe('direct manipulation boundary', () => {
       viewport.dispose()
     })
 
-    it('keeps reference plane at controls.target during cube sync without dragging (Requirement 46)', () => {
+    it('keeps reference plane at global Y=0 during cube sync without dragging (Invariant 1, 2)', () => {
       const viewport = mount()
       const gridMesh = viewport.grid.group.children.find((child) => child instanceof Mesh) as Mesh
       viewport.controls.target.set(0, 2000, 0)
@@ -935,7 +935,7 @@ describe('direct manipulation boundary', () => {
           vertices: transformCubeVertices(toMatrix({ type: 'translation', x: 0, y, z: 0 })),
         })
         vi.runAllTimers()
-        expect(gridMesh.position.y).toBe(2000)
+        expect(gridMesh.position.y).toBe(0)
       }
 
       viewport.dispose()
@@ -1054,7 +1054,7 @@ describe('direct manipulation boundary', () => {
       viewport.dispose()
     })
 
-    it('provides semantic slice label via referenceFrame property (Requirement 58)', () => {
+    it('provides invariant semantic slice label via referenceFrame property (RED 24, 30)', () => {
       const viewport = mount()
       viewport.controls.target.set(100, 200, 2000)
       viewport.setViewAxisLock('z')
@@ -1064,13 +1064,13 @@ describe('direct manipulation boundary', () => {
       expect(frame).toBeDefined()
       expect(frame.plane).toBe('xy')
       expect(frame.normalAxis).toBe('z')
-      expect(frame.normalValue).toBe(2000)
-      expect(frame.sliceLabel).toBe('XY · Z = 2000')
+      expect(frame.normalValue).toBe(0)
+      expect(frame.sliceLabel).toBe('XY · Z = 0')
 
       viewport.dispose()
     })
 
-    it('positions reference plane and updates slice label in free view for Y=200 and Y=2000 (Smoke 60, 61)', () => {
+    it('keeps reference plane at Y=0 and slice label XZ · Y = 0 on Locate Cube for Y=200 and Y=2000 (RED 29)', () => {
       const viewport = mount()
       const gridMesh = viewport.grid.group.children.find((child) => child instanceof Mesh) as Mesh
 
@@ -1083,9 +1083,47 @@ describe('direct manipulation boundary', () => {
         vi.runAllTimers()
 
         expect(viewport.controls.target.y).toBeCloseTo(y)
-        expect(gridMesh.position.y).toBeCloseTo(y)
-        expect(viewport.referenceFrame.sliceLabel).toBe(`XZ · Y = ${y}`)
+        // Camera centers on cube, but ground plane remains at global Y=0
+        expect(gridMesh.position.y).toBe(0)
+        expect(viewport.referenceFrame.sliceLabel).toBe('XZ · Y = 0')
+        expect(viewport.referenceFrame.normalValue).toBe(0)
       }
+
+      viewport.dispose()
+    })
+
+    it('keeps reference plane invariant on Lock + Locate for distant cube (RED 30)', () => {
+      const viewport = mount()
+
+      // Lock X, cube X=5000
+      viewport.sync({
+        matrix: toMatrix({ type: 'translation', x: 5000, y: 0, z: 0 }),
+        vertices: transformCubeVertices(toMatrix({ type: 'translation', x: 5000, y: 0, z: 0 })),
+      })
+      viewport.setViewAxisLock('x')
+      viewport.locateCube()
+      vi.runAllTimers()
+
+      expect(viewport.controls.target.x).toBeCloseTo(5000)
+      expect(viewport.referenceFrame.plane).toBe('yz')
+      expect(viewport.referenceFrame.normalAxis).toBe('x')
+      expect(viewport.referenceFrame.normalValue).toBe(0)
+      expect(viewport.referenceFrame.sliceLabel).toBe('YZ · X = 0')
+
+      // Lock Z, cube Z=5000
+      viewport.sync({
+        matrix: toMatrix({ type: 'translation', x: 0, y: 0, z: 5000 }),
+        vertices: transformCubeVertices(toMatrix({ type: 'translation', x: 0, y: 0, z: 5000 })),
+      })
+      viewport.setViewAxisLock('z')
+      viewport.locateCube()
+      vi.runAllTimers()
+
+      expect(viewport.controls.target.z).toBeCloseTo(5000)
+      expect(viewport.referenceFrame.plane).toBe('xy')
+      expect(viewport.referenceFrame.normalAxis).toBe('z')
+      expect(viewport.referenceFrame.normalValue).toBe(0)
+      expect(viewport.referenceFrame.sliceLabel).toBe('XY · Z = 0')
 
       viewport.dispose()
     })

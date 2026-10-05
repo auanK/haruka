@@ -26,7 +26,7 @@ export type AdaptiveGrid = {
     camera: Camera,
     width: number,
     height: number,
-    focusTarget?: Vector3,
+    navigationTarget?: Vector3,
     activePlane?: ActiveGridPlane,
   ) => void
   readonly dispose: () => void
@@ -190,10 +190,10 @@ export const createAdaptiveGrid = (): AdaptiveGrid => {
     camera: Camera,
     _width: number,
     height: number,
-    focusTarget?: Vector3,
+    navigationTarget?: Vector3,
     activePlane: ActiveGridPlane = 'xz',
   ) => {
-    const target = focusTarget ?? defaultTarget
+    const target = navigationTarget ?? defaultTarget
     const distance = Math.max(camera.position.distanceTo(target), 1)
 
     const isOrtho =
@@ -217,8 +217,15 @@ export const createAdaptiveGrid = (): AdaptiveGrid => {
     }
     groundMesh.scale.set(extentU, extentV, 1)
 
-    // Position reference plane at the active target slice; keep global Y axis at world origin
-    groundMesh.position.set(target.x, target.y, target.z)
+    // Position finite ground mesh:
+    // Recenters in-plane (render coverage) while fixing the normal at 0 (invariant mathematical plane).
+    if (activePlane === 'yz') {
+      groundMesh.position.set(0, target.y, target.z)
+    } else if (activePlane === 'xy') {
+      groundMesh.position.set(target.x, target.y, 0)
+    } else {
+      groundMesh.position.set(target.x, 0, target.z)
+    }
     yAxisLine.position.set(0, 0, 0)
 
     let centerU: number

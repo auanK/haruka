@@ -38,7 +38,7 @@ export type HarukaScene = {
   readonly updateScene: (
     width: number,
     height: number,
-    focusTarget?: Vector3,
+    navigationTarget?: Vector3,
     activeCam?: Camera,
     activePlane?: 'xz' | 'yz' | 'xy',
   ) => void
@@ -90,13 +90,13 @@ export const createHarukaScene = (): HarukaScene => {
   const updateScene = (
     width: number,
     height: number,
-    focusTarget?: Vector3,
+    navigationTarget?: Vector3,
     activeCam?: Camera,
     activePlane?: 'xz' | 'yz' | 'xy',
   ) => {
     const cam = activeCam ?? camera
-    grid.update(cam, width, height, focusTarget, activePlane)
-    coordinateLabels.update(cam, focusTarget ?? defaultFocus, width, height, activePlane)
+    grid.update(cam, width, height, navigationTarget, activePlane)
+    coordinateLabels.update(cam, navigationTarget ?? defaultFocus, width, height, activePlane)
   }
 
   return {

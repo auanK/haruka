@@ -17,32 +17,34 @@ export type CoordinateAxisAnchor = {
 export const deriveCoordinateAxisAnchor = (
   axis: CoordinateAxis,
   activePlane: ActiveGridPlane = 'xz',
-  focus: { readonly x: number; readonly y: number; readonly z: number } = { x: 0, y: 0, z: 0 },
+  _focusOrOffset?: unknown,
   offset = COORDINATE_LABEL_OFFSET,
 ): CoordinateAxisAnchor => {
+  const actualOffset = typeof _focusOrOffset === 'number' ? _focusOrOffset : offset
   if (activePlane === 'yz') {
-    if (axis === 'y') return { fixedX: focus.x, fixedY: 0, fixedZ: offset }
-    if (axis === 'z') return { fixedX: focus.x, fixedY: offset, fixedZ: 0 }
-    return { fixedX: focus.x, fixedY: offset, fixedZ: 0 }
+    if (axis === 'y') return { fixedX: 0, fixedY: 0, fixedZ: actualOffset }
+    if (axis === 'z') return { fixedX: 0, fixedY: actualOffset, fixedZ: 0 }
+    return { fixedX: 0, fixedY: actualOffset, fixedZ: 0 }
   }
   if (activePlane === 'xy') {
-    if (axis === 'x') return { fixedX: 0, fixedY: offset, fixedZ: focus.z }
-    if (axis === 'y') return { fixedX: offset, fixedY: 0, fixedZ: focus.z }
-    return { fixedX: 0, fixedY: offset, fixedZ: focus.z }
+    if (axis === 'x') return { fixedX: 0, fixedY: actualOffset, fixedZ: 0 }
+    if (axis === 'y') return { fixedX: actualOffset, fixedY: 0, fixedZ: 0 }
+    return { fixedX: 0, fixedY: actualOffset, fixedZ: 0 }
   }
-  if (axis === 'x') return { fixedX: 0, fixedY: focus.y + offset, fixedZ: 0 }
-  if (axis === 'z') return { fixedX: 0, fixedY: focus.y + offset, fixedZ: 0 }
-  return { fixedX: offset, fixedY: 0, fixedZ: 0 }
+  if (axis === 'x') return { fixedX: 0, fixedY: actualOffset, fixedZ: 0 }
+  if (axis === 'z') return { fixedX: 0, fixedY: actualOffset, fixedZ: 0 }
+  return { fixedX: actualOffset, fixedY: 0, fixedZ: 0 }
 }
 
 export const deriveCoordinateOriginAnchor = (
   activePlane: ActiveGridPlane = 'xz',
-  focus: { readonly x: number; readonly y: number; readonly z: number } = { x: 0, y: 0, z: 0 },
+  _focusOrOffset?: unknown,
   offset = COORDINATE_LABEL_OFFSET,
 ): { readonly x: number; readonly y: number; readonly z: number } => {
-  if (activePlane === 'yz') return { x: focus.x, y: offset, z: -offset }
-  if (activePlane === 'xy') return { x: -offset, y: offset, z: focus.z }
-  return { x: -offset, y: focus.y + offset, z: 0 }
+  const actualOffset = typeof _focusOrOffset === 'number' ? _focusOrOffset : offset
+  if (activePlane === 'yz') return { x: 0, y: actualOffset, z: -actualOffset }
+  if (activePlane === 'xy') return { x: -actualOffset, y: actualOffset, z: 0 }
+  return { x: -actualOffset, y: actualOffset, z: 0 }
 }
 
 export const next125Step = (step: number): number => {
