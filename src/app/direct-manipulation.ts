@@ -29,6 +29,7 @@ export type GestureView = {
   readonly up: Point3
 }
 export type GestureContext = {
+  readonly constraintActive?: boolean
   readonly space: 'global' | 'local'
   readonly defaultSpace?: 'global' | 'local'
   readonly plane: boolean

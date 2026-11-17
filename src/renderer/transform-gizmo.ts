@@ -271,7 +271,7 @@ export const createTransformGizmo = () => {
 
   const updateAppearance = () => {
     if (!draft) return
-    const focused = dragging ? draft.axis : hovered
+    const focused = dragging || draft.gesture?.constraintActive ? draft.axis : hovered
     for (let i = 0; i < 3; i++) {
       const active =
         draft.gesture?.plane && focused !== null && focused !== 'free'
@@ -319,7 +319,7 @@ export const createTransformGizmo = () => {
       rotation.visible = next.phase === 'rotation-draft'
       scale.visible = next.phase === 'scale-draft'
       move.visible = next.phase === 'translation-draft'
-      guides.visible = active && next.axis !== 'free'
+      guides.visible = (active || next.gesture?.constraintActive === true) && next.axis !== 'free'
       updateAppearance()
     },
     update: (camera: Camera, width: number, height: number, objectMatrix?: Matrix4) => {

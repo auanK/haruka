@@ -39,6 +39,17 @@ const stackState = shallowRef(createTransformStackState())
 const manipulationState = shallowRef<DirectManipulationState>(createDirectManipulationState())
 const displayPrecision = ref<DisplayPrecision>(4)
 const activeTool = ref<'select' | TransformKind>('select')
+const toolConstraint = ref<{ axis: 'x' | 'y' | 'z'; plane: boolean } | null>(null)
+const pendingConstraintLabel = computed(() => {
+  const constraint = toolConstraint.value
+  if (!constraint) return ''
+  const tool =
+    activeTool.value === 'rotation' ? 'Rotate' : activeTool.value === 'scale' ? 'Scale' : 'Move'
+  const axis = constraint.plane
+    ? `Plane ${constraint.axis === 'x' ? 'YZ' : constraint.axis === 'y' ? 'XZ' : 'XY'}`
+    : constraint.axis.toUpperCase()
+  return `${tool} · ${axis} · ${activeTool.value === 'translation' && manipulationState.value.lockedAxis ? 'Global' : 'Local'}`
+})
 const hoveredControl = ref<AxisConstraint | null>(null)
 const controlHintPosition = ref({ left: '0px', top: '0px' })
 const tools = [
@@ -118,6 +129,7 @@ const hudAxisLabel = computed(() => {
 const controlHint = computed(() => {
   if (isDraft.value) return `${hudToolLabel.value} · ${hudAxisLabel.value}`
   if (hoveredControl.value === null || activeTool.value === 'select') return ''
+  if (toolConstraint.value) return pendingConstraintLabel.value
   const tool =
     activeTool.value === 'rotation' ? 'Rotate' : activeTool.value === 'scale' ? 'Scale' : 'Move'
   const axis =
@@ -167,6 +179,7 @@ const syncViewport = () => {
 const setManipulation = (next: DirectManipulationState) => {
   const prev = manipulationState.value
   manipulationState.value = next
+  if (!next.selected) toolConstraint.value = null
   hoveredControl.value = null
   if (viewport) {
     viewport.setManipulation({
@@ -195,7 +208,7 @@ const makeToolDraft = (kind: TransformKind, pointer: readonly [number, number] |
     right: [1, 0, 0] as const,
     up: [0, 1, 0] as const,
   }
-  return beginTransform(
+  let draft = beginTransform(
     manipulationState.value,
     kind,
     currentVertices.value,
@@ -204,6 +217,12 @@ const makeToolDraft = (kind: TransformKind, pointer: readonly [number, number] |
     view,
     kind === 'translation' && manipulationState.value.lockedAxis ? 'global' : 'local',
   )
+  if (toolConstraint.value && draft.phase !== 'idle' && draft.gesture) {
+    draft = setGestureConstraint(draft, toolConstraint.value.axis, toolConstraint.value.plane)
+    if (draft.phase !== 'idle' && draft.gesture)
+      draft = { ...draft, gesture: { ...draft.gesture, constraintActive: true } }
+  }
+  return draft
 }
 const syncToolGizmo = () => {
   const state = manipulationState.value
@@ -218,6 +237,19 @@ const syncToolGizmo = () => {
 const selectTool = (tool: 'select' | TransformKind) => {
   if (isDraft.value) cancelDraft()
   activeTool.value = tool
+  toolConstraint.value = null
+  hoveredControl.value = null
+  syncToolGizmo()
+}
+const armAxis = (axis: 'x' | 'y' | 'z', plane = false) => {
+  if (activeTool.value === 'select' || !manipulationState.value.selected) return
+  if (activeTool.value === 'translation' && manipulationState.value.lockedAxis === axis && !plane)
+    return
+  const usePlane = plane && activeTool.value !== 'rotation'
+  toolConstraint.value =
+    toolConstraint.value?.axis === axis && toolConstraint.value.plane === usePlane
+      ? null
+      : { axis, plane: usePlane }
   hoveredControl.value = null
   syncToolGizmo()
 }
@@ -338,7 +370,12 @@ const onViewportPointerDown = (event: PointerEvent) => {
   const canvas = viewportElement.value?.querySelector('canvas')
   if (event.target !== canvas) return
   const control = viewport?.pickTransformControl(event.clientX, event.clientY)
-  if (!control || (activeTool.value === 'rotation' && control === 'free')) return
+  const onLockedObject = toolConstraint.value && viewport?.pick(event.clientX, event.clientY)
+  if (
+    (!control && !onLockedObject) ||
+    (activeTool.value === 'rotation' && control === 'free' && !toolConstraint.value)
+  )
+    return
   event.preventDefault()
   event.stopPropagation()
   canvas?.focus({ preventScroll: true })
@@ -346,7 +383,7 @@ const onViewportPointerDown = (event: PointerEvent) => {
   const pointer = [event.clientX, event.clientY] as const
   pointerDownPos = null
   setManipulation(makeToolDraft(activeTool.value, pointer))
-  if (control !== 'free') setAxis(control)
+  if (!toolConstraint.value && control && control !== 'free') setAxis(control)
   gizmoDrag = true
 }
 
@@ -462,6 +499,31 @@ const onKeyDown = (event: KeyboardEvent) => {
   if (editable) return
 
   const key = event.key.toLowerCase()
+  if (key === 'escape') {
+    if (toolConstraint.value) {
+      toolConstraint.value = null
+      syncToolGizmo()
+    } else if (activeTool.value !== 'select') selectTool('select')
+    return
+  }
+  if ((key === 'x' || key === 'y' || key === 'z') && !event.repeat) {
+    event.preventDefault()
+    armAxis(key, event.shiftKey)
+    return
+  }
+  const viewAxis =
+    event.code === 'Numpad1'
+      ? 'z'
+      : event.code === 'Numpad3'
+        ? 'x'
+        : event.code === 'Numpad7'
+          ? 'y'
+          : null
+  if (viewAxis && !event.repeat) {
+    event.preventDefault()
+    toggleLock(viewAxis)
+    return
+  }
   if ((key === 'g' || key === 'r' || key === 's') && !event.repeat) {
     event.preventDefault()
     selectTool(key === 'g' ? 'translation' : key === 'r' ? 'rotation' : 'scale')
@@ -577,7 +639,7 @@ onBeforeUnmount(() => {
           :aria-pressed="manipulationState.lockedAxis === 'x'"
           :class="{ active: manipulationState.lockedAxis === 'x' }"
           :disabled="isDraft"
-          title="Lock X (View YZ plane)"
+          title="Side view · YZ (Numpad 3)"
           aria-label="Lock X axis"
           @click="toggleLock('x')"
         >
@@ -588,7 +650,7 @@ onBeforeUnmount(() => {
           :aria-pressed="manipulationState.lockedAxis === 'y'"
           :class="{ active: manipulationState.lockedAxis === 'y' }"
           :disabled="isDraft"
-          title="Lock Y (View XZ plane)"
+          title="Top view · XZ (Numpad 7)"
           aria-label="Lock Y axis"
           @click="toggleLock('y')"
         >
@@ -599,7 +661,7 @@ onBeforeUnmount(() => {
           :aria-pressed="manipulationState.lockedAxis === 'z'"
           :class="{ active: manipulationState.lockedAxis === 'z' }"
           :disabled="isDraft"
-          title="Lock Z (View XY plane)"
+          title="Front view · XY (Numpad 1)"
           aria-label="Lock Z axis"
           @click="toggleLock('z')"
         >
@@ -616,12 +678,20 @@ onBeforeUnmount(() => {
         {{ referenceSliceText }}
       </div>
       <div
-        v-if="!isDraft"
+        v-if="!isDraft && !toolConstraint"
         class="grab-hint"
         :class="{ selected: manipulationState.selected }"
         aria-hidden="true"
       >
-        G — Move · R — Rotate · S — Scale
+        G — Move · R — Rotate · S — Scale<br />X / Y / Z — constrain axis
+      </div>
+      <div
+        v-if="!isDraft && toolConstraint"
+        class="axis-constraint-hint"
+        role="status"
+        aria-live="polite"
+      >
+        {{ pendingConstraintLabel }}<br /><span>Drag object or control · Esc to clear</span>
       </div>
       <div v-if="isDraft" class="tool-hud" role="status" aria-live="polite">
         <div>{{ hudToolLabel }} · {{ hudAxisLabel }}</div>
@@ -716,9 +786,11 @@ main {
   right: 112px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  background: transparent;
-  border: none;
+  gap: 0;
+  padding: 2px;
+  background: color-mix(in srgb, var(--color-panel) 92%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
   z-index: 10;
   user-select: none;
 }
@@ -749,14 +821,14 @@ main {
 
 .view-lock-controls button {
   position: relative;
-  min-width: 20px;
+  min-width: 24px;
   height: 22px;
   padding: 0 4px;
   background: transparent;
   border: none;
   color: var(--color-interaction);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   line-height: 22px;
@@ -790,6 +862,7 @@ main {
   position: absolute;
   bottom: 12px;
   left: 12px;
+  max-width: calc(100% - 24px);
   font-family: monospace;
   font-size: 11px;
   line-height: 1.4;
@@ -799,6 +872,24 @@ main {
   user-select: none;
   z-index: 5;
   transition: opacity 0.15s ease;
+}
+.axis-constraint-hint {
+  position: absolute;
+  left: 50px;
+  bottom: 12px;
+  max-width: calc(100% - 70px);
+  padding: 4px 6px;
+  border: 1px solid var(--color-selection);
+  border-radius: 3px;
+  background: var(--color-panel);
+  color: var(--color-hair-light);
+  font: 11px/1.5 monospace;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.axis-constraint-hint span {
+  color: var(--color-text-muted);
+  font-size: 10px;
 }
 
 .grab-hint.selected {

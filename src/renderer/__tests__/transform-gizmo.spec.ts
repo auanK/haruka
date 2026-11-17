@@ -31,6 +31,23 @@ const draft = () =>
   )
 
 describe('three-axis rotation gizmo', () => {
+  it('highlights a pending keyboard axis and its guide before the mouse drag begins', () => {
+    const gizmo = createTransformGizmo()
+    const state = draft()
+    if (state.phase === 'idle') throw new Error('Expected draft')
+    gizmo.setDraft({ ...state, axis: 'x', gesture: { ...state.gesture!, constraintActive: true } })
+    const x = gizmo.group.getObjectByName('rotation-ring-x') as Mesh
+    const y = gizmo.group.getObjectByName('rotation-ring-y') as Mesh
+    expect((x.material as MeshBasicMaterial).opacity).toBeGreaterThan(
+      (y.material as MeshBasicMaterial).opacity,
+    )
+    expect(gizmo.group.getObjectByName('transform-axis-guides')!.visible).toBe(true)
+    gizmo.setHovered('y')
+    expect((x.material as MeshBasicMaterial).opacity).toBeGreaterThan(
+      (y.material as MeshBasicMaterial).opacity,
+    )
+    gizmo.dispose()
+  })
   it('offers only the X/Y/Z rotation rings and no free rotation ring', () => {
     const gizmo = createTransformGizmo()
     const state = draft()

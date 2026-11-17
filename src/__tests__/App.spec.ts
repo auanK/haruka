@@ -107,9 +107,9 @@ const resultPanel = () => wrapper.getComponent({ name: 'GeometryPanel' })
 const expectResultsInSync = () => {
   const matrix: HarukaMatrix4 = resultPanel().props('finalMatrix')
   const vertices: readonly CubeVertex[] = resultPanel().props('vertices')
-  expect(wrapper.findAll('.geometry-panel td[data-index]').map((cell) => cell.text())).toEqual(
-    matrix.map(formatMatrixValue),
-  )
+  expect(
+    wrapper.findAll('.geometry-panel .final-matrix td[data-index]').map((cell) => cell.text()),
+  ).toEqual(matrix.map(formatMatrixValue))
   expect(target().matrix).toEqual(new Matrix4().set(...matrix))
   const update = vi.mocked(mountHarukaViewport).mock.results[0]!.value.updateVertexLabels
   expect(vi.mocked(update).mock.calls.slice(-1)[0]?.[0]).toBe(vertices)
@@ -917,6 +917,66 @@ describe('direct manipulation translation', () => {
     return { state: stackPanel().props('state'), committed: expectResultsInSync().matrix }
   }
 
+  it.each(['x', 'y', 'z'] as const)(
+    'arms scale axis %s before a body drag without changing the matrix early',
+    async (axis) => {
+      const { committed } = await mountWithRT()
+      await clickCanvas(50)
+      await press('s')
+      await press(axis)
+      expect(wrapper.get('.axis-constraint-hint').text()).toContain(`${axis.toUpperCase()} · Local`)
+      expect(hud().exists()).toBe(false)
+      expect(expectResultsInSync().matrix).toEqual(committed)
+      const draft = vi.mocked(viewport().setTransformGizmo).mock.calls.at(-1)?.[0]
+      expect(draft).toMatchObject({ axis, gesture: { constraintActive: true } })
+      vi.mocked(viewport().pickTransformControl).mockReturnValueOnce(null)
+      await pointer(canvas().element, 'pointerdown', 50)
+      await move(150, 100)
+      const preview = expectResultsInSync().matrix
+      await pointer(canvas().element, 'pointerup', 150)
+      expect(expectResultsInSync().matrix).toEqual(preview)
+      expect(stackPanel().props('state').operations[0]!.transform).toEqual({
+        type: 'scale',
+        x: axis === 'x' ? 2 : 1,
+        y: axis === 'y' ? 2 : 1,
+        z: axis === 'z' ? 2 : 1,
+      })
+      await press('Escape')
+      expect(wrapper.find('.axis-constraint-hint').exists()).toBe(false)
+    },
+  )
+
+  it('supports Shift-axis planes and clearing the pending axis with the same shortcut', async () => {
+    await mountWithRT()
+    await clickCanvas(50)
+    await press('s')
+    await press('x', { shiftKey: true })
+    expect(wrapper.get('.axis-constraint-hint').text()).toContain('Plane YZ')
+    await pointer(canvas().element, 'pointerdown', 50)
+    await move(150, 100)
+    await pointer(canvas().element, 'pointerup', 150)
+    expect(stackPanel().props('state').operations[0]!.transform).toEqual({
+      type: 'scale',
+      x: 1,
+      y: 2,
+      z: 2,
+    })
+    await press('x', { shiftKey: true })
+    expect(wrapper.find('.axis-constraint-hint').exists()).toBe(false)
+  })
+
+  it.each([
+    ['Numpad1', 'z'],
+    ['Numpad3', 'x'],
+    ['Numpad7', 'y'],
+  ] as const)('uses %s for view axis %s', async (code, axis) => {
+    wrapper = mount(App)
+    await press(code.slice(-1), { code })
+    expect(vi.mocked(viewport().setViewAxisLock)).toHaveBeenLastCalledWith(axis)
+    await press(code.slice(-1), { code })
+    expect(vi.mocked(viewport().setViewAxisLock)).toHaveBeenLastCalledWith(null)
+  })
+
   it.each(['rotation', 'scale'])(
     'leaves pivot compensation off for table %s and allows enabling it from its details',
     async (type) => {
@@ -1343,7 +1403,7 @@ describe('direct manipulation translation', () => {
 
     await select.setValue('1')
     expect(wrapper.getComponent({ name: 'GeometryPanel' }).props('precision')).toBe(1)
-    const formattedCell = wrapper.findAll('.geometry-panel td[data-index]')[0]!.text()
+    const formattedCell = wrapper.findAll('.geometry-panel .final-matrix td[data-index]')[0]!.text()
     expect(formattedCell).toBe('0')
 
     await select.setValue('2')

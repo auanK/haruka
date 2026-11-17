@@ -63,14 +63,15 @@ const onPrecisionChange = (event: Event) => {
         <tbody>
           <tr v-for="vertex in vertices" :key="vertex.id" :data-vertex-id="vertex.id">
             <th>{{ vertex.id }}</th>
-            <td>{{ formatNumber(vertex.point[0], precision) }}</td>
-            <td>{{ formatNumber(vertex.point[1], precision) }}</td>
-            <td>{{ formatNumber(vertex.point[2], precision) }}</td>
+            <td :title="String(vertex.point[0])">{{ formatNumber(vertex.point[0], precision) }}</td>
+            <td :title="String(vertex.point[1])">{{ formatNumber(vertex.point[1], precision) }}</td>
+            <td :title="String(vertex.point[2])">{{ formatNumber(vertex.point[2], precision) }}</td>
           </tr>
         </tbody>
       </table>
 
       <Matrix4Grid
+        class="final-matrix"
         :matrix="toRaw(finalMatrix)"
         :caption="caption ?? 'Final Matrix'"
         :precision="precision"
@@ -145,14 +146,13 @@ h1 {
   color: var(--color-interaction-light);
   font-weight: 500;
 }
-
 .vertex-table {
   width: 100%;
   max-width: none;
-  table-layout: auto;
+  table-layout: fixed;
   border-collapse: collapse;
   font-family: monospace;
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   background: var(--color-input);
@@ -161,10 +161,10 @@ h1 {
 }
 
 .vertex-table thead th {
-  padding: 0.2rem 0.4rem;
+  padding: 0.2rem 0.15rem;
   color: var(--color-interaction-light);
   font-family: system-ui, sans-serif;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   text-align: right;
   border-bottom: 1px solid color-mix(in srgb, var(--color-interaction) 25%, var(--color-border));
@@ -173,6 +173,7 @@ h1 {
 }
 
 .vertex-table thead th:first-child {
+  width: 22%;
   color: var(--color-text-muted);
   text-align: left;
 }
@@ -182,7 +183,7 @@ h1 {
 }
 
 .vertex-table tbody th {
-  padding: 0.2rem 0.4rem;
+  padding: 0.2rem 0.15rem;
   color: var(--color-interaction);
   font-weight: 600;
   text-align: left;
@@ -190,7 +191,9 @@ h1 {
 }
 
 .vertex-table tbody td {
-  padding: 0.2rem 0.4rem;
+  padding: 0.2rem 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: right;
   white-space: nowrap;
 }
