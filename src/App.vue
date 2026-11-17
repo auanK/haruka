@@ -451,6 +451,21 @@ const onPointerMove = (event: MouseEvent) => {
 
 const onKeyDown = (event: KeyboardEvent) => {
   const editable = isEditableKeyboardTarget(event.target)
+  const axisKey = event.key.toLowerCase()
+  if (event.altKey) {
+    if (
+      !editable &&
+      !isDraft.value &&
+      !event.repeat &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      (axisKey === 'x' || axisKey === 'y' || axisKey === 'z')
+    ) {
+      event.preventDefault()
+      toggleLock(axisKey)
+    }
+    return
+  }
 
   if (manipulationState.value.phase !== 'idle') {
     if (event.key === 'Escape') {
@@ -496,7 +511,7 @@ const onKeyDown = (event: KeyboardEvent) => {
     return
   }
 
-  if (editable) return
+  if (editable || event.ctrlKey || event.metaKey) return
 
   const key = event.key.toLowerCase()
   if (key === 'escape') {
@@ -508,7 +523,8 @@ const onKeyDown = (event: KeyboardEvent) => {
   }
   if ((key === 'x' || key === 'y' || key === 'z') && !event.repeat) {
     event.preventDefault()
-    armAxis(key, event.shiftKey)
+    if (activeTool.value === 'select') toggleLock(key)
+    else armAxis(key, event.shiftKey)
     return
   }
   const viewAxis =
@@ -629,53 +645,58 @@ onBeforeUnmount(() => {
           </svg>
         </button>
       </div>
-      <div
-        class="view-lock-controls axis-lock-toolbar"
-        role="toolbar"
-        aria-label="View axis lock controls"
-      >
-        <button
-          type="button"
-          :aria-pressed="manipulationState.lockedAxis === 'x'"
-          :class="{ active: manipulationState.lockedAxis === 'x' }"
-          :disabled="isDraft"
-          title="Side view · YZ (Numpad 3)"
-          aria-label="Lock X axis"
-          @click="toggleLock('x')"
+      <div class="view-axis-controls">
+        <div
+          class="view-lock-controls axis-lock-toolbar"
+          role="toolbar"
+          aria-label="View axis lock controls"
         >
-          X
-        </button>
-        <button
-          type="button"
-          :aria-pressed="manipulationState.lockedAxis === 'y'"
-          :class="{ active: manipulationState.lockedAxis === 'y' }"
-          :disabled="isDraft"
-          title="Top view · XZ (Numpad 7)"
-          aria-label="Lock Y axis"
-          @click="toggleLock('y')"
+          <button
+            type="button"
+            :aria-pressed="manipulationState.lockedAxis === 'x'"
+            :class="{ active: manipulationState.lockedAxis === 'x' }"
+            :disabled="isDraft"
+            title="Lock X · Alt+X / Numpad 3 · Side view (YZ)"
+            aria-keyshortcuts="Alt+X"
+            aria-label="Lock X axis"
+            @click="toggleLock('x')"
+          >
+            X
+          </button>
+          <button
+            type="button"
+            :aria-pressed="manipulationState.lockedAxis === 'y'"
+            :class="{ active: manipulationState.lockedAxis === 'y' }"
+            :disabled="isDraft"
+            title="Lock Y · Alt+Y / Numpad 7 · Top view (XZ)"
+            aria-keyshortcuts="Alt+Y"
+            aria-label="Lock Y axis"
+            @click="toggleLock('y')"
+          >
+            Y
+          </button>
+          <button
+            type="button"
+            :aria-pressed="manipulationState.lockedAxis === 'z'"
+            :class="{ active: manipulationState.lockedAxis === 'z' }"
+            :disabled="isDraft"
+            title="Lock Z · Alt+Z / Numpad 1 · Front view (XY)"
+            aria-keyshortcuts="Alt+Z"
+            aria-label="Lock Z axis"
+            @click="toggleLock('z')"
+          >
+            Z
+          </button>
+        </div>
+        <div
+          v-if="referenceSliceText"
+          class="slice-indicator"
+          data-testid="slice-indicator"
+          role="status"
+          aria-live="polite"
         >
-          Y
-        </button>
-        <button
-          type="button"
-          :aria-pressed="manipulationState.lockedAxis === 'z'"
-          :class="{ active: manipulationState.lockedAxis === 'z' }"
-          :disabled="isDraft"
-          title="Front view · XY (Numpad 1)"
-          aria-label="Lock Z axis"
-          @click="toggleLock('z')"
-        >
-          Z
-        </button>
-      </div>
-      <div
-        v-if="referenceSliceText"
-        class="slice-indicator"
-        data-testid="slice-indicator"
-        role="status"
-        aria-live="polite"
-      >
-        {{ referenceSliceText }}
+          {{ referenceSliceText }}
+        </div>
       </div>
       <div
         v-if="!isDraft && !toolConstraint"
@@ -683,7 +704,8 @@ onBeforeUnmount(() => {
         :class="{ selected: manipulationState.selected }"
         aria-hidden="true"
       >
-        G — Move · R — Rotate · S — Scale<br />X / Y / Z — constrain axis
+        G — Move · R — Rotate · S — Scale<br />X / Y / Z —
+        {{ activeTool === 'select' ? 'lock view' : 'constrain axis' }}
       </div>
       <div
         v-if="!isDraft && toolConstraint"
@@ -725,6 +747,7 @@ main {
   flex: 1;
   min-width: 0;
   height: 100%;
+  container-type: inline-size;
 }
 
 .viewport canvas {
@@ -780,10 +803,18 @@ main {
   border-color: var(--color-interaction);
 }
 
-.view-lock-controls {
+.view-axis-controls {
   position: absolute;
   top: 10px;
   right: 112px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  z-index: 10;
+}
+
+.view-lock-controls {
   display: flex;
   align-items: center;
   gap: 0;
@@ -917,9 +948,6 @@ main {
 }
 
 .slice-indicator {
-  position: absolute;
-  top: 36px;
-  right: 112px;
   font-family: monospace;
   font-size: 11px;
   color: var(--color-interaction);
@@ -931,6 +959,12 @@ main {
   pointer-events: none;
   user-select: none;
   z-index: 10;
+}
+
+@container (max-width: 320px) {
+  .view-axis-controls {
+    top: 44px;
+  }
 }
 
 @media (max-width: 900px) {

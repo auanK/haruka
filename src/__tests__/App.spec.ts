@@ -965,6 +965,55 @@ describe('direct manipulation translation', () => {
     expect(wrapper.find('.axis-constraint-hint').exists()).toBe(false)
   })
 
+  it.each(['x', 'y', 'z'] as const)(
+    'toggles view lock %s with the letter in selection mode and Alt with a transform tool',
+    async (axis) => {
+      wrapper = mount(App, { attachTo: document.body })
+      const before = expectResultsInSync().matrix
+      const button = wrapper.get(`button[aria-label="Lock ${axis.toUpperCase()} axis"]`)
+      expect((await press(axis)).defaultPrevented).toBe(true)
+      expect(button.attributes('aria-pressed')).toBe('true')
+      expect(viewport().setViewAxisLock).toHaveBeenLastCalledWith(axis)
+      await press(axis, { repeat: true })
+      expect(viewport().setViewAxisLock).toHaveBeenCalledTimes(1)
+      await press(axis)
+      expect(button.attributes('aria-pressed')).toBe('false')
+      expect(viewport().setViewAxisLock).toHaveBeenLastCalledWith(null)
+
+      await clickCanvas(50)
+      await press('s')
+      await press(axis)
+      expect(wrapper.get('.axis-constraint-hint').text()).toContain(`${axis.toUpperCase()} · Local`)
+      expect(viewport().setViewAxisLock).toHaveBeenCalledTimes(2)
+      await press(axis, { altKey: true })
+      expect(button.attributes('aria-pressed')).toBe('true')
+      expect(viewport().setViewAxisLock).toHaveBeenLastCalledWith(axis)
+      expect(wrapper.get('.axis-constraint-hint').text()).toContain(`${axis.toUpperCase()} · Local`)
+      expect(expectResultsInSync().matrix).toEqual(before)
+      await press(axis, { altKey: true })
+      expect(viewport().setViewAxisLock).toHaveBeenLastCalledWith(null)
+    },
+  )
+
+  it('keeps view shortcuts out of editors, browser modifiers and active drags', async () => {
+    await mountWithRT()
+    const input = wrapper.get('article input[name="x"]').element
+    for (const axis of ['x', 'y', 'z']) {
+      await press(axis, {}, input)
+      await press(axis, { altKey: true }, input)
+      await press(axis, { ctrlKey: true })
+      await press(axis, { metaKey: true })
+      await press(axis, { altKey: true, repeat: true })
+    }
+    expect(viewport().setViewAxisLock).not.toHaveBeenCalled()
+    await clickCanvas(50)
+    await beginGesture('s')
+    const draft = vi.mocked(viewport().setTransformGizmo).mock.calls.at(-1)?.[0]
+    await press('z', { altKey: true })
+    expect(vi.mocked(viewport().setTransformGizmo).mock.calls.at(-1)?.[0]).toBe(draft)
+    expect(viewport().setViewAxisLock).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['Numpad1', 'z'],
     ['Numpad3', 'x'],
