@@ -107,7 +107,7 @@ describe('editable pivot matrix', () => {
       expect(wrapper.get(`td[data-index="${i}"]`).find('input').exists()).toBe(false)
     wrapper.unmount()
   })
-  it('updates live rotation expressions inside the matrix during a mouse preview', async () => {
+  it('updates live symbolic rotation angles inside the matrix during a mouse preview', async () => {
     const wrapper = mount(JointTransformCard, { props: { operation, preview: true } })
     await wrapper.setProps({
       operation: { ...operation, transform: { type: 'rotation', axis: 'z', angle: Math.PI / 4 } },
@@ -144,7 +144,7 @@ describe('editable pivot matrix', () => {
     ])
     expect(wrapper.get('td[data-index="3"]').findAll('input,button')).toHaveLength(0)
     await wrapper.get('.composition-toggle').trigger('click')
-    expect(wrapper.findAll('.fixed-frame input, .fixed-frame button')).toHaveLength(0)
+    expect(wrapper.find('.fixed-frame').exists()).toBe(false)
     wrapper.unmount()
   })
 })

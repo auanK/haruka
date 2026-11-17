@@ -554,7 +554,7 @@ describe('transformation stack integration', () => {
     expect(after.vertices[0]?.point[1]).toBeCloseTo(-0.5)
   })
 
-  it('links symbolic rotation angle edits to numeric Final Matrix, vertices and the same renderer inputs', async () => {
+  it('links in-cell rotation angle edits to numeric Final Matrix, vertices and the same renderer inputs', async () => {
     wrapper = mount(App)
     await add('rotation')
     const operation = wrapper.get('article')

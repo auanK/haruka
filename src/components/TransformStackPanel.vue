@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   addTransformOperation,
   createOperationId,
@@ -40,10 +40,42 @@ const props = withDefaults(
 )
 const emit = defineEmits<{ edit: [result: StackEditResult] }>()
 const selectedType = ref<Transform['type']>('translation')
+const expandedOperationId = ref<string | null>(null)
+const setExpanded = (id: string, expanded: boolean) => {
+  expandedOperationId.value = expanded ? id : null
+}
+const closeOutsideCard = (event: Event) => {
+  if (!expandedOperationId.value || !(event.target instanceof Element)) return
+  const card = event.target.closest('[data-operation-id]')
+  if (card?.getAttribute('data-operation-id') !== expandedOperationId.value)
+    expandedOperationId.value = null
+}
+const closeOnEscape = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') expandedOperationId.value = null
+}
+onMounted(() => {
+  window.addEventListener('click', closeOutsideCard, true)
+  window.addEventListener('keydown', closeOnEscape)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('click', closeOutsideCard, true)
+  window.removeEventListener('keydown', closeOnEscape)
+})
 const previewOperation = computed(
   () =>
     props.draftOperation ??
     (props.draftTransform ? { id: 'draft', transform: props.draftTransform } : null),
+)
+watch(
+  () => [props.state.operations, previewOperation.value],
+  () => {
+    if (
+      expandedOperationId.value &&
+      !props.state.operations.some((op) => op.id === expandedOperationId.value) &&
+      previewOperation.value?.id !== expandedOperationId.value
+    )
+      expandedOperationId.value = null
+  },
 )
 const resolvedOperations = computed(() => resolveTransformStackState(props.state).operations)
 const editOperation = (operation: TransformOperation, transform: Transform) =>
@@ -174,11 +206,18 @@ const dropOperation = (event: DragEvent) => {
         <button type="submit" aria-label="Add Transform" title="Add Transform">+</button>
       </form>
     </header>
-    <aside v-if="previewOperation" class="draft-card" aria-label="Draft transformation preview">
+    <aside
+      v-if="previewOperation"
+      :data-operation-id="previewOperation.id"
+      class="draft-card"
+      aria-label="Draft transformation preview"
+    >
       <JointTransformCard
         v-if="previewOperation.joint"
         :operation="previewOperation"
         :precision="precision"
+        :expanded="expandedOperationId === previewOperation.id"
+        @update:expanded="setExpanded(previewOperation.id, $event)"
         preview
       />
       <TransformOperationEditor v-else :operation="previewOperation" :precision="precision" preview>
@@ -207,11 +246,13 @@ const dropOperation = (event: DragEvent) => {
           :is="operation.joint ? JointTransformCard : TransformOperationEditor"
           :operation="operation"
           :precision="precision"
+          v-bind="operation.joint ? { expanded: expandedOperationId === operation.id } : {}"
           v-on="
             operation.joint
               ? {
                   'update-pivot': (enabled: boolean) =>
                     emit('edit', setOperationPivotEnabled(state, operation.id, enabled)),
+                  'update:expanded': (expanded: boolean) => setExpanded(operation.id, expanded),
                 }
               : {}
           "
@@ -390,7 +431,7 @@ form button:hover:enabled {
 article {
   position: relative;
   margin-top: 0.4rem;
-  padding: 0.35rem 0.45rem;
+  padding: 0.25rem 0.35rem;
   border: 1px solid var(--color-border);
   border-left: 3px solid var(--color-selection-strong);
   border-radius: 3px;
@@ -407,22 +448,22 @@ article:has(
 }
 .operation-controls {
   position: absolute;
-  top: 0.25rem;
-  right: 0.35rem;
+  top: 0;
+  right: 0;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 1px;
+  gap: 1px;
+  padding: 0;
   border-radius: 2px;
-  background: var(--color-surface);
+  background: transparent;
   z-index: 2;
 }
 .operation-controls button {
-  width: 20px;
-  height: 20px;
-  min-height: 20px;
+  width: 15px;
+  height: 16px;
+  min-height: 16px;
   padding: 0;
-  font-size: 11px;
+  font-size: 10px;
 }
 .dragging {
   cursor: grabbing;
@@ -461,7 +502,7 @@ article:has(
 .draft-card {
   box-sizing: border-box;
   margin-top: 0.5rem;
-  padding: 0.5rem;
+  padding: 0.25rem 0.35rem;
   border: 1px dashed var(--color-border);
   border-radius: 4px;
 }

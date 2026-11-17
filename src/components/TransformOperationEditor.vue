@@ -175,15 +175,23 @@ const selectPlane = (plane: ReflectionPlane) => {
           </span>
           <button
             v-else
-            class="cell-control"
+            class="cell-control rotation-cell"
             type="button"
             :aria-label="cells[index]!.label"
-            :title="cells[index]!.label"
+            :title="`${cells[index]!.text} · edit angle`"
             :disabled="preview"
             @click="beginAngleEdit(index)"
             @keydown.enter.prevent="beginAngleEdit(index)"
           >
-            {{ cells[index]!.text }}
+            <span>{{ cells[index]!.expression }}</span
+            ><wbr /><span
+              class="rotation-argument"
+              :style="{
+                '--angle-chars':
+                  (formatMatrixValue(cells[index]!.degrees, precision).length + 3) * 0.62,
+              }"
+              >({{ formatMatrixValue(cells[index]!.degrees, precision) }}°)</span
+            >
           </button>
         </template>
         <button
@@ -206,137 +214,167 @@ const selectPlane = (plane: ReflectionPlane) => {
 
 <style scoped>
 .operation-header {
+  position: relative;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  margin-bottom: 0.2rem;
-  min-height: 22px;
-  padding-inline-end: 98px;
+  flex-wrap: nowrap;
+  gap: 3px;
+  box-sizing: border-box;
+  margin-bottom: 2px;
+  min-height: 20px;
+  padding-inline-end: 48px;
 }
-
-.operation-editor {
-  min-width: 0;
-  overflow-x: auto;
-}
-
-.notation {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  min-height: 18px;
-  color: var(--color-hair-light);
-  font-size: 12px;
-  font-weight: 500;
+.operation-header :deep(h2) {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: clamp(11px, 1vw, 12px);
+  line-height: 18px;
   white-space: nowrap;
 }
-
-.axis-selector {
-  display: flex;
-  gap: 1px;
+.operation-editor {
+  min-width: 0;
 }
-
-.axis-selector button {
-  min-height: 20px;
-  padding: 0 5px;
+.notation {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  flex: 0 1 auto;
+  gap: 2px;
+  min-width: 0;
+  min-height: 18px;
+  color: var(--color-hair-light);
   font-size: 11px;
+  white-space: nowrap;
 }
-
+.axis-selector {
+  display: inline-flex;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-input);
+}
+.axis-selector button {
+  box-sizing: border-box;
+  width: 15px;
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--color-border);
+  border-radius: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  font-size: 10px;
+  line-height: 14px;
+}
+.axis-selector button:last-child {
+  border-right: 0;
+}
 .operation-matrix {
   margin-top: 0;
 }
-
 .operation-matrix :deep(td) {
   text-align: center;
-  white-space: nowrap;
 }
-
 .cell-control,
 .angle-editor {
   box-sizing: border-box;
-  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 20px;
+  height: 20px;
+  padding: 0 2px;
   border: 1px solid color-mix(in srgb, var(--color-selection) 15%, var(--color-border));
   border-radius: 2px;
   background: color-mix(in srgb, var(--color-selection) 16%, var(--color-input));
   color: inherit;
   font: inherit;
-  line-height: 20px;
+  line-height: 16px;
   text-align: center;
   white-space: nowrap;
 }
-
 input.cell-control {
-  width: 100%;
-  min-width: 6ch;
-  box-sizing: border-box;
-  padding: 0 0.3rem;
+  display: block;
 }
-
-button.cell-control {
-  width: 100%;
-  padding: 0 4px;
-}
-
 input {
   appearance: textfield;
   cursor: text;
 }
-
 input::-webkit-inner-spin-button,
 input::-webkit-outer-spin-button {
   appearance: none;
 }
-
 .cell-control:hover,
 .axis-selector button:hover:enabled {
   border-color: var(--color-selection);
 }
-
 .axis-selector button:not([aria-pressed='true']):hover:enabled {
   color: var(--color-hair-light);
 }
-
 .cell-control:focus-visible,
 .axis-selector button:focus-visible,
 .angle-editor:focus-within {
-  outline: 2px solid var(--color-hair-light);
+  outline: 1px solid var(--color-hair-light);
   outline-offset: -1px;
   border-color: var(--color-selection);
 }
-
 .cell-control[aria-pressed='true'],
 .axis-selector button[aria-pressed='true'] {
   background: var(--color-selection-strong);
-  border-color: var(--color-selection);
   color: var(--color-text);
-  font-weight: 600;
 }
-
+.operation-matrix :deep(td:has(.angle-editor)) {
+  position: relative;
+  overflow: visible;
+}
 .angle-editor {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  z-index: 5;
   width: max-content;
-  padding: 0 4px;
+  min-width: 100%;
+  padding: 0 3px;
+  background: var(--color-input);
+  box-shadow: 0 0 0 1px var(--color-selection);
 }
-
+.operation-matrix :deep(td[data-column='2'] .angle-editor) {
+  left: auto;
+  right: 0;
+}
+.rotation-cell {
+  display: block;
+  container-type: inline-size;
+  white-space: normal;
+  line-height: 9px;
+  padding-inline: 1px;
+}
+.rotation-argument {
+  display: inline-block;
+  font-size: min(1em, calc((100cqw - 2px) / var(--angle-chars)));
+  line-height: 9px;
+}
 .angle-editor input {
+  flex: 0 1 auto;
+  box-sizing: border-box;
   field-sizing: content;
   width: auto;
   min-width: 5ch;
-  max-width: 24ch;
+  max-width: 18ch;
   min-height: 0;
-  height: 20px;
-  padding: 0 0.35rem;
+  height: 18px;
+  padding: 0 1px;
   border: 0;
-  border-radius: 0;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: center;
 }
-
 .angle-editor input:focus-visible {
   outline: none;
 }

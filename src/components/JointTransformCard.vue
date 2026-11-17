@@ -6,8 +6,7 @@ import {
   type TransformOperation,
 } from '../app/transform-stack-state'
 import { composeTransforms, type Transform } from '../domain'
-import { formatMatrixValue, type DisplayPrecision } from '../ui/transform-stack'
-import { basisMatrix } from '../app/transform-gesture-math'
+import type { DisplayPrecision } from '../ui/transform-stack'
 import Matrix4Grid from './Matrix4Grid.vue'
 import TransformOperationEditor from './TransformOperationEditor.vue'
 
@@ -16,21 +15,24 @@ const props = withDefaults(
     operation: TransformOperation
     precision?: DisplayPrecision
     preview?: boolean
+    expanded?: boolean
   }>(),
-  { precision: 4, preview: false },
+  { precision: 4, preview: false, expanded: undefined },
 )
 const emit = defineEmits<{
   'update-transform': [transform: Transform]
   'update-pivot': [enabled: boolean]
+  'update:expanded': [expanded: boolean]
 }>()
-const expanded = ref(false)
+const localExpanded = ref(false)
+const expanded = computed(() => props.expanded ?? localExpanded.value)
+const setExpanded = (value: boolean) => {
+  if (props.expanded === undefined) localExpanded.value = value
+  emit('update:expanded', value)
+}
 const pivotEnabled = computed(() => props.operation.joint?.pivotEnabled !== false)
 const matrix = computed(() => getOperationDisplayMatrix(props.operation))
 const localFrame = computed(() => props.operation.joint?.basis)
-const frameMatrix = computed(() => (localFrame.value ? basisMatrix(localFrame.value) : undefined))
-const showFrame = computed(() =>
-  localFrame.value?.some((axis, i) => axis.some((n, j) => n !== (i === j ? 1 : 0))),
-)
 const pivotFactors = computed(() => {
   const p = getOperationLocalPivot(props.operation)
   return [
@@ -50,7 +52,11 @@ const pivotFactors = computed(() => {
 
 <template>
   <div class="joint-transform">
-    <div class="main-matrix">
+    <div
+      class="main-matrix"
+      role="group"
+      :aria-label="localFrame ? 'Matrix in object-local axes' : 'Matrix in world axes'"
+    >
       <TransformOperationEditor
         :operation="operation"
         :precision="precision"
@@ -64,18 +70,12 @@ const pivotFactors = computed(() => {
             class="composition-toggle"
             :aria-expanded="expanded"
             :aria-label="expanded ? 'Collapse composition' : 'Expand composition'"
-            @click="expanded = !expanded"
+            @click="setExpanded(!expanded)"
           >
             <span aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
           </button>
           <slot name="title"
             ><h2>{{ operation.transform.type === 'rotation' ? 'Rotation' : 'Scale' }}</h2></slot
-          >
-          <span
-            v-if="localFrame"
-            class="pivot-indicator"
-            title="Matrix expressed in the fixed local axes of this gesture"
-            >Local</span
           >
           <span
             v-if="pivotEnabled"
@@ -121,53 +121,11 @@ const pivotFactors = computed(() => {
           </div>
         </div>
       </div>
-      <div v-if="showFrame && frameMatrix" class="fixed-frame">
-        <span>Fixed local frame B · M = B · Mlocal · Bᵀ</span>
-        <table aria-label="Fixed local coordinate frame">
-          <tbody>
-            <tr v-for="row in [0, 1, 2]" :key="row">
-              <td v-for="column in [0, 1, 2]" :key="column">
-                {{ formatMatrixValue(frameMatrix[row * 4 + column]!, precision) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
     </section>
   </div>
 </template>
 
 <style scoped>
-.fixed-frame {
-  flex: 0 0 100%;
-  color: var(--color-text-muted);
-  font: 10px monospace;
-}
-.fixed-frame table {
-  width: 100%;
-  margin-top: 2px;
-  background: var(--color-input);
-  border-collapse: collapse;
-}
-.fixed-frame td {
-  padding: 1px 3px;
-  text-align: right;
-}
-
-.joint-transform :deep(.operation-matrix) {
-  font-size: 11px;
-}
-.joint-transform :deep(.operation-matrix td) {
-  min-width: 3ch;
-  padding: 2px 3px;
-}
-.joint-transform :deep(.cell-control) {
-  min-height: 22px;
-  line-height: 18px;
-}
-.joint-transform :deep(input.cell-control) {
-  min-width: 4ch;
-}
 .joint-transform,
 .main-matrix {
   min-width: 0;
@@ -181,9 +139,9 @@ h2 {
   font-weight: 600;
 }
 .composition-toggle {
-  flex: 0 0 18px;
-  width: 18px;
-  min-height: 22px;
+  flex: 0 0 12px;
+  width: 12px;
+  min-height: 18px;
   padding: 0 2px;
   border: 0;
   background: transparent;
@@ -196,7 +154,8 @@ h2 {
 }
 .pivot-indicator {
   color: var(--color-text-muted);
-  font: 10px monospace;
+  flex: 0 0 auto;
+  font: 9px monospace;
   cursor: help;
 }
 .composition {

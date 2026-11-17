@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import type { TransformStackState } from '../../app/transform-stack-state'
+import { createPivotOperation } from '../../app/transform-stack-state'
 import { deriveDestinationIndex } from '../../ui/transform-stack-dnd'
 import TransformStackPanel from '../TransformStackPanel.vue'
 
@@ -32,6 +33,32 @@ const expectClean = () => {
 }
 
 describe('transformation stack drag identity', () => {
+  it('opens one composition at a time and closes it when clicking outside its card', async () => {
+    const rotation = { type: 'rotation', axis: 'z', angle: 0.5 } as const
+    const state = {
+      operations: [
+        createPivotOperation('A', rotation, [1, 2, 3]),
+        createPivotOperation('B', rotation, [1, 2, 3]),
+      ],
+    }
+    wrapper = mount(TransformStackPanel, { props: { state }, attachTo: document.body })
+    const first = wrapper.get('article[data-operation-id="A"]')
+    const second = wrapper.get('article[data-operation-id="B"]')
+    await first.get('button[aria-label="Expand composition"]').trigger('click')
+    expect(wrapper.findAll('.composition')).toHaveLength(1)
+    await second.get('button[aria-label="Expand composition"]').trigger('click')
+    expect(first.find('.composition').exists()).toBe(false)
+    expect(second.find('.composition').exists()).toBe(true)
+    await second.get('input[aria-label="Use own center"]').trigger('click')
+    expect(second.find('.composition').exists()).toBe(true)
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+    expect(wrapper.findAll('.composition')).toHaveLength(0)
+    await first.get('button[aria-label="Expand composition"]').trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTick()
+    expect(wrapper.findAll('.composition')).toHaveLength(0)
+  })
   it('adds a normal scale on top with pivot compensation disabled', async () => {
     const state: TransformStackState = {
       operations: [{ id: 'r', transform: { type: 'rotation', axis: 'x', angle: Math.PI / 4 } }],

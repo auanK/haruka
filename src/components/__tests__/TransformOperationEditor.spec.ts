@@ -177,7 +177,7 @@ describe('TransformOperationEditor', () => {
     ['y', [0, 2, 8, 10], ['cos(90°)', 'sen(90°)', '-sen(90°)', 'cos(90°)']],
     ['z', [0, 1, 4, 5], ['cos(90°)', '-sen(90°)', 'sen(90°)', 'cos(90°)']],
   ] as const)(
-    'renders %s rotation cells symbolically with no permanent inputs',
+    'renders four symbolic %s rotation cells with no permanent angle input',
     (axis, indices, text) => {
       render({ type: 'rotation', axis, angle: Math.PI / 2 })
       expect(
@@ -186,6 +186,9 @@ describe('TransformOperationEditor', () => {
           .map((button) => Number(button.element.closest('td')!.dataset.index)),
       ).toEqual(indices)
       expect(indices.map((index) => wrapper.get(`td[data-index="${index}"]`).text())).toEqual(text)
+      expect(wrapper.get(`td[data-index="${indices[0]}"] button`).attributes('title')).toContain(
+        'cos(90°)',
+      )
       expect(wrapper.find('input, select, caption').exists()).toBe(false)
       expect(wrapper.get('.notation').text()).toContain(`R${axis}(θ)`)
       expect(wrapper.get('.notation sub').text()).toBe(axis)
@@ -197,7 +200,7 @@ describe('TransformOperationEditor', () => {
   )
 
   it.each([0, 1, 4, 5])(
-    'edits the same angle through symbolic cell %s and links all expressions',
+    'edits one angle through symbolic cell %s and links the rotation values',
     async (index) => {
       const operation = render({ type: 'rotation', axis: 'z', angle: Math.PI / 6 })
       await wrapper.get(`td[data-index="${index}"] button`).trigger('click')
@@ -327,7 +330,7 @@ describe('TransformOperationEditor', () => {
     expect((xInput.element as HTMLInputElement).value).toBe('0')
   })
 
-  it('preserves angle draft during continuous rotation editing, skips redundant emits, and restores canonical symbol on blur', async () => {
+  it('preserves angle draft during continuous rotation editing, skips redundant emits, and restores the numeric coefficient on blur', async () => {
     render({ type: 'rotation', axis: 'z', angle: 0 })
     await wrapper.get('td[data-index="0"] button').trigger('click')
     const angleInput = wrapper.get('input[name="angle"]')
