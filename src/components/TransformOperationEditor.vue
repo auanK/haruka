@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref } from 'vue'
 import type { TransformOperation } from '../app/transform-stack-state'
-import { toMatrix, type ReflectionPlane, type RotationAxis, type Transform } from '../domain'
+import {
+  toMatrix,
+  type Matrix4,
+  type ReflectionPlane,
+  type RotationAxis,
+  type Transform,
+} from '../domain'
 import Matrix4Grid from './Matrix4Grid.vue'
 import { deriveTransformMatrixCells, type TransformNumberField } from '../ui/transform-matrix'
 import {
@@ -15,16 +21,20 @@ const props = withDefaults(
   defineProps<{
     operation: TransformOperation
     precision?: DisplayPrecision
+    /** Pivot offsets are derived; only semantic cells in the linear block can emit edits. */
+    matrix?: Matrix4
+    preview?: boolean
   }>(),
   {
     precision: 4,
+    preview: false,
   },
 )
 const emit = defineEmits<{ 'update-transform': [transform: Transform] }>()
 const axes = ['x', 'y', 'z'] as const
 const editor = ref<HTMLElement | null>(null)
 const transform = computed(() => props.operation.transform)
-const matrix = computed(() => toMatrix(transform.value))
+const matrix = computed(() => props.matrix ?? toMatrix(transform.value))
 const cells = computed(() => deriveTransformMatrixCells(transform.value))
 const notation = computed(() => {
   const current = transform.value
@@ -33,7 +43,7 @@ const notation = computed(() => {
     current.type
   ]
 })
-const drafts = reactive<Partial<Record<TransformNumberField | 'angle', string>>>({})
+const drafts = reactive<Partial<Record<string, string>>>({})
 const activeRotationCell = ref<number>()
 
 const updateNumber = (field: TransformNumberField | 'angle', event: Event): void => {
@@ -113,6 +123,7 @@ const selectPlane = (plane: ReflectionPlane) => {
             :aria-label="`Rotation axis ${axis.toUpperCase()}`"
             :title="`Rotation axis ${axis.toUpperCase()}`"
             :aria-pressed="transform.axis === axis"
+            :disabled="preview"
             @click="selectAxis(axis)"
           >
             {{ axis.toUpperCase() }}
@@ -138,6 +149,7 @@ const selectPlane = (plane: ReflectionPlane) => {
           type="number"
           step="any"
           :name="cells[index]!.field"
+          :readonly="preview"
           :value="drafts[cells[index]!.field] ?? formatMatrixValue(cells[index]!.value, precision)"
           :aria-label="cells[index]!.label"
           :title="cells[index]!.label"
@@ -167,6 +179,7 @@ const selectPlane = (plane: ReflectionPlane) => {
             type="button"
             :aria-label="cells[index]!.label"
             :title="cells[index]!.label"
+            :disabled="preview"
             @click="beginAngleEdit(index)"
             @keydown.enter.prevent="beginAngleEdit(index)"
           >
@@ -180,11 +193,12 @@ const selectPlane = (plane: ReflectionPlane) => {
           :aria-label="cells[index]!.label"
           :title="cells[index]!.label"
           :aria-pressed="cells[index]!.active"
+          :disabled="preview"
           @click="selectPlane(cells[index]!.plane)"
         >
           {{ cells[index]!.text }}
         </button>
-        <span v-else>{{ cells[index]!.text }}</span>
+        <span v-else>{{ formatMatrixValue(matrix[index]!, precision) }}</span>
       </template>
     </Matrix4Grid>
   </div>

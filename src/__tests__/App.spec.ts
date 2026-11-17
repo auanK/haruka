@@ -27,6 +27,7 @@ vi.mock('../renderer/viewport', async () => {
       target.matrixAutoUpdate = false
       target.matrix.makeTranslation(99, 99, 99)
       const canvas = document.createElement('canvas')
+      canvas.tabIndex = 0
       container.append(canvas)
       const updateVertexLabels = vi.fn<(vertices: readonly CubeVertex[]) => void>()
       const locateCube = vi.fn<() => void>()
@@ -63,6 +64,18 @@ vi.mock('../renderer/viewport', async () => {
           },
         ),
         setManipulation: vi.fn<HarukaViewport['setManipulation']>(),
+        getGestureView: vi.fn<HarukaViewport['getGestureView']>(() => ({
+          pivot: [50, 50],
+          facing: [0, 0, 1],
+          right: [1, 0, 0],
+          up: [0, 1, 0],
+        })),
+        measureGesture: vi.fn<HarukaViewport['measureGesture']>((draft, pointer) => ({
+          angle: (pointer[0] - (draft.start?.[0] ?? pointer[0])) / 100,
+          factor: 1 + (pointer[0] - (draft.start?.[0] ?? pointer[0])) / 100,
+        })),
+        setTransformGizmo: vi.fn<HarukaViewport['setTransformGizmo']>(),
+        pickTransformControl: vi.fn<HarukaViewport['pickTransformControl']>(() => null),
         setViewAxisLock: vi.fn<HarukaViewport['setViewAxisLock']>(),
         controls: {
           addEventListener: vi.fn<(type: string, listener: () => void) => void>(),
@@ -143,6 +156,51 @@ const expectDragCleanedUp = () => {
 }
 
 describe('transformation stack integration', () => {
+  it.each(['rotation', 'scale'])(
+    'keeps %s around its own centre when reordered after being created at the origin',
+    async (type) => {
+      wrapper = mount(App)
+      await add(type)
+      const operation = () => wrapper.get('article[data-operation-id="op-1"]')
+      if (type === 'rotation') {
+        await operation().get('td[data-index="0"] button').trigger('click')
+        await operation().get('input[name="angle"]').setValue('60')
+        await operation().get('input[name="angle"]').trigger('blur')
+      } else await operation().get('input[name="x"]').setValue('2')
+      await operation().get('.composition-toggle').trigger('click')
+      await operation().get('input[aria-label="Use own center"]').setValue(true)
+      await add('translation')
+      const translation = wrapper.get('article[data-operation-id="op-2"]')
+      await translation.get('input[name="x"]').setValue('3.12345678912345')
+      await translation.get('input[name="y"]').setValue('-2')
+      await operation().get('button[aria-label="Move up"]').trigger('click')
+      const checkCentre = (x: number) => {
+        const { matrix } = expectResultsInSync()
+        expect(matrix[3]).toBeCloseTo(x, 12)
+        expect(matrix[7]).toBeCloseTo(-2, 12)
+        expect(matrix[11]).toBe(0)
+        const state = stackPanel().props('state')
+        expect(state.operations[0]!.joint!.pivot).toEqual([x, -2, 0])
+        for (const index of [3, 7, 11])
+          expect(operation().get(`td[data-index="${index}"]`).find('input, button').exists()).toBe(
+            false,
+          )
+      }
+      checkCentre(3.12345678912345)
+      await translation.get('input[name="x"]').setValue('5.2345678912345')
+      checkCentre(5.2345678912345)
+      await operation().get('button[aria-label="Move down"]').trigger('click')
+      await operation().get('button[aria-label="Move up"]').trigger('click')
+      checkCentre(5.2345678912345)
+      if (!operation().find('input[aria-label="Use own center"]').exists())
+        await operation().get('.composition-toggle').trigger('click')
+      await operation().get('input[aria-label="Use own center"]').setValue(false)
+      expect(expectResultsInSync().matrix[3]).not.toBeCloseTo(5.2345678912345, 12)
+      await operation().get('input[aria-label="Use own center"]').setValue(true)
+      checkCentre(5.2345678912345)
+    },
+  )
+
   it('only changes the insertion indicator during dragover, preserving state, matrix, vertices and renderer', async () => {
     wrapper = mount(App)
     for (const type of ['translation', 'rotation', 'scale']) await add(type)
@@ -508,7 +566,7 @@ describe('transformation stack integration', () => {
       axis: 'z',
       angle: Math.PI / 4,
     })
-    expect(Object.keys(state.operations[0]!)).toEqual(['id', 'transform'])
+    expect(state.operations[0]!.joint!.pivotEnabled).toBe(false)
     expect(expectResultsInSync().matrix).toEqual(
       toMatrix({ type: 'rotation', axis: 'z', angle: Math.PI / 4 }),
     )
@@ -825,6 +883,22 @@ describe('direct manipulation translation', () => {
     await new Promise((resolve) => requestAnimationFrame(resolve))
     await wrapper.vm.$nextTick()
   }
+  const beginGesture = async (
+    key: 'g' | 'r' | 's',
+    start: readonly [number, number] = [100, 100],
+  ) => {
+    await press(key)
+    vi.mocked(viewport().pickTransformControl).mockReturnValueOnce(key === 'r' ? 'z' : 'free')
+    canvas().element.dispatchEvent(
+      new MouseEvent('pointerdown', {
+        button: 0,
+        clientX: start[0],
+        clientY: start[1],
+        bubbles: true,
+      }),
+    )
+    await wrapper.vm.$nextTick()
+  }
   const lastManipulation = () => vi.mocked(viewport().setManipulation).mock.calls.at(-1)?.[0]
   const hud = () => wrapper.find('.tool-hud')
   const caption = () => wrapper.get('.geometry-panel caption').text()
@@ -843,6 +917,142 @@ describe('direct manipulation translation', () => {
     return { state: stackPanel().props('state'), committed: expectResultsInSync().matrix }
   }
 
+  it.each(['rotation', 'scale'])(
+    'leaves pivot compensation off for table %s and allows enabling it from its details',
+    async (type) => {
+      wrapper = mount(App, { attachTo: document.body })
+      await add('translation')
+      await wrapper.get('article input[name="x"]').setValue('3')
+      await add(type)
+      const card = wrapper.findAll('article')[0]!
+      await card.get('button[aria-label="Expand composition"]').trigger('click')
+      const pivot = card.get('input[aria-label="Use own center"]')
+      expect((pivot.element as HTMLInputElement).checked).toBe(false)
+      if (type === 'rotation') {
+        await card.get('td[data-index="0"] button').trigger('click')
+        await card.get('input[name="angle"]').setValue('90')
+        await card.get('input[name="angle"]').trigger('blur')
+      } else await card.get('td[data-index="0"] input').setValue('2')
+      const origin = expectResultsInSync().matrix
+      await pivot.setValue(true)
+      const centered = expectResultsInSync().matrix
+      expect(centered[3]).toBeCloseTo(3, 12)
+      expect(centered).not.toEqual(origin)
+      for (const index of [3, 7, 11])
+        expect(
+          card.get(`.main-matrix td[data-index="${index}"]`).findAll('input,button'),
+        ).toHaveLength(0)
+    },
+  )
+
+  it('rejects free rotation controls and keeps every mouse rotation as one X/Y/Z operation', async () => {
+    await mountWithRT()
+    await clickCanvas(50)
+    await press('r')
+    vi.mocked(viewport().pickTransformControl).mockReturnValueOnce('free')
+    await pointer(canvas().element, 'pointerdown', 50)
+    expect(hud().exists()).toBe(false)
+    await pointer(canvas().element, 'pointerup', 50)
+    vi.mocked(viewport().pickTransformControl).mockReturnValueOnce('y')
+    await pointer(canvas().element, 'pointerdown', 50)
+    await move(150, 100)
+    expect(wrapper.get('.draft-card').text()).not.toContain('R(θx, θy, θz)')
+    await pointer(canvas().element, 'pointerup', 150)
+    const operation = stackPanel().props('state').operations[0]!
+    expect(operation.transform).toMatchObject({ type: 'rotation', axis: 'y' })
+    const card = wrapper.findAll('article')[0]!
+    await card.get('td[data-index="0"] button').trigger('click')
+    expect(card.findAll('input[name="angle"]')).toHaveLength(1)
+  })
+
+  it('rotates about the selected local axis of an already rotated object', async () => {
+    const { committed } = await mountWithRT()
+    await clickCanvas(50)
+    await press('r')
+    vi.mocked(viewport().pickTransformControl).mockReturnValueOnce('x')
+    await pointer(canvas().element, 'pointerdown', 50)
+    await press('4')
+    await press('5')
+    expect(hud().text()).toContain('X · Local')
+    const preview = expectResultsInSync().matrix
+    for (const index of [0, 4, 8]) expect(preview[index]).toBeCloseTo(committed[index]!, 12)
+    expect(preview).not.toEqual(committed)
+    await pointer(canvas().element, 'pointerup', 50)
+    expect(expectResultsInSync().matrix).toEqual(preview)
+  })
+
+  it('keeps viewport scale local with its pivot enabled and commits the exact preview', async () => {
+    await mountWithRT()
+    const rotation = wrapper.get('article[data-operation-id="op-2"]')
+    await rotation.get('td[data-index="0"] button').trigger('click')
+    await rotation.get('input[name="angle"]').setValue('45')
+    await rotation.get('input[name="angle"]').trigger('blur')
+    await clickCanvas(50)
+    await beginGesture('s')
+    await press('x')
+    await press('2')
+    expect(wrapper.get('.draft-card td[data-index="0"] input').element).toHaveProperty('value', '2')
+    const preview = expectResultsInSync().matrix
+    await press('Enter')
+    const operations = stackPanel().props('state').operations
+    expect(operations[0]).toMatchObject({
+      transform: { type: 'scale', x: 2, y: 1, z: 1 },
+      joint: { pivotEnabled: true },
+    })
+    expect(expectResultsInSync().matrix).toEqual(preview)
+    const scale = wrapper.get(`article[data-operation-id="${operations[0]!.id}"]`)
+    await scale.get('td[data-index="0"] input').setValue('3.12345678912345')
+    const edited = expectResultsInSync().matrix
+    const dot = edited[0] * edited[1] + edited[4] * edited[5] + edited[8] * edited[9]
+    expect(dot).toBeCloseTo(0, 13)
+    expect(scale.find('.joint-parameters').exists()).toBe(false)
+  })
+
+  it.each([
+    ['g', 'Move tool', 'translation-draft'],
+    ['r', 'Rotate tool', 'rotation-draft'],
+    ['s', 'Scale tool', 'scale-draft'],
+  ] as const)(
+    '%s activates the same tool as its button and waits for a control drag',
+    async (key, label, phase) => {
+      const { state, committed } = await mountWithRT()
+      await clickCanvas(50)
+      await press(key)
+      await press(key)
+      expect(wrapper.get(`button[aria-label="${label}"]`).attributes('aria-pressed')).toBe('true')
+      expect(vi.mocked(viewport().setTransformGizmo).mock.calls.at(-1)?.[0]?.phase).toBe(phase)
+      expect(vi.mocked(viewport().setTransformGizmo).mock.calls.at(-1)?.[1]).toBe(false)
+      await move(100, 100)
+      await move(400, 300)
+      expect(hud().exists()).toBe(false)
+      expect(wrapper.find('.draft-card').exists()).toBe(false)
+      expect(expectResultsInSync().matrix).toEqual(committed)
+      expect(stackPanel().props('state')).toBe(state)
+      vi.mocked(viewport().pickTransformControl).mockReturnValueOnce('z')
+      await pointer(canvas().element, 'pointerdown', 50)
+      await move(150, 100)
+      const preview = expectResultsInSync().matrix
+      expect(preview).not.toEqual(committed)
+      await pointer(canvas().element, 'pointerup', 150)
+      expect(expectResultsInSync().matrix).toEqual(preview)
+      expect(cardIds()).toHaveLength(state.operations.length + 1)
+    },
+  )
+
+  it('switching tools by shortcut cancels the current drag and waits for another control', async () => {
+    const { state, committed } = await mountWithRT()
+    await clickCanvas(50)
+    await beginGesture('r')
+    await move(200, 200)
+    expect(expectResultsInSync().matrix).not.toEqual(committed)
+    await press('s')
+    expect(wrapper.get('button[aria-label="Scale tool"]').attributes('aria-pressed')).toBe('true')
+    expect(hud().exists()).toBe(false)
+    await move(500, 400)
+    expect(expectResultsInSync().matrix).toEqual(committed)
+    expect(stackPanel().props('state')).toBe(state)
+  })
+
   it('selects by clicking the cube, deselects on background, ignores orbit drags and keeps the stack', async () => {
     const { state } = await mountWithRT()
     const syncs = vi.mocked(viewportSync()).mock.calls.length
@@ -860,12 +1070,12 @@ describe('direct manipulation translation', () => {
     expect(vi.mocked(viewportSync())).toHaveBeenCalledTimes(syncs)
   })
 
-  it('G previews T · M without editing the stack, X/Y/Z re-derive one draft, and Enter commits it on top', async () => {
+  it('Dragging Move previews T · M without editing the stack, X/Y/Z re-derive one draft, and Enter commits it on top', async () => {
     const { state, committed } = await mountWithRT()
     await press('g')
     expect(hud().exists()).toBe(false)
     await clickCanvas(50)
-    await press('g')
+    await beginGesture('g', [200, 100])
     expect(hud().text()).toContain('Translate · Free')
     expect(lastManipulation()).toEqual({ selected: true, active: true })
     await move(200, 100)
@@ -874,31 +1084,36 @@ describe('direct manipulation translation', () => {
     expect(stackPanel().props('state')).toBe(state)
     expect(caption()).toContain('Preview')
     const cases: readonly (readonly [string, string, readonly [number, number, number]])[] = [
-      ['x', 'X', [3, 0, 0]],
-      ['Y', 'Y', [0, 2, 0]],
+      ['x', 'X', [0, 2, 0]],
+      ['Y', 'Y', [3, 0, 0]],
       ['z', 'Z', [0, 0, 5]],
-      ['X', 'X', [3, 0, 0]],
+      ['X', 'X', [0, 2, 0]],
     ]
     for (const [key, label, expected] of cases) {
       await press(key)
       expect(hud().text()).toContain(`Translate · ${label}`)
-      expect(expectResultsInSync().matrix).toEqual(
-        multiply(translationOf(expected[0], expected[1], expected[2]), committed),
+      const expectedMatrix = multiply(
+        translationOf(expected[0], expected[1], expected[2]),
+        committed,
       )
+      expectResultsInSync().matrix.forEach((value, i) =>
+        expect(value).toBeCloseTo(expectedMatrix[i]!, 12),
+      )
+      expect(hud().text()).toContain('Local')
     }
-    expect(hud().text()).toContain('T(3, 0, 0)')
+    expect(hud().text()).toContain('T(0, 2, 0)')
     expect(stackPanel().props('state')).toBe(state)
-    await press('g')
-    expect(expectResultsInSync().matrix).toEqual(multiply(translationOf(3, 0, 0), committed))
     const preview = expectResultsInSync().matrix
+    await press('g', { repeat: true })
+    expect(expectResultsInSync().matrix).toEqual(preview)
 
     const enter = await press('Enter')
     expect(enter.defaultPrevented).toBe(true)
     expect(cardIds()).toEqual(['op-3', 'op-2', 'op-1'])
     expect(stackPanel().props('state').operations[0]?.transform).toEqual({
       type: 'translation',
-      x: 3,
-      y: 0,
+      x: expect.closeTo(0, 12),
+      y: expect.closeTo(2, 12),
       z: 0,
     })
     expect(stackPanel().props('state').operations.slice(1)).toEqual(state.operations)
@@ -913,7 +1128,7 @@ describe('direct manipulation translation', () => {
   it('Escape restores the committed results exactly; a left click commits like Enter', async () => {
     const { state, committed } = await mountWithRT()
     await clickCanvas(50)
-    await press('g')
+    await beginGesture('g')
     await move(100, 100)
     await move(400, 100)
     expect(expectResultsInSync().matrix).not.toEqual(committed)
@@ -923,7 +1138,7 @@ describe('direct manipulation translation', () => {
     expect(hud().exists()).toBe(false)
     expect(lastManipulation()).toEqual({ selected: true, active: false })
 
-    await press('g')
+    await beginGesture('g')
     await move(100, 100)
     await move(400, 100)
     const preview = expectResultsInSync().matrix
@@ -936,9 +1151,9 @@ describe('direct manipulation translation', () => {
   it('does not create a neutral translation for zero or microscopic movement', async () => {
     const { state } = await mountWithRT()
     await clickCanvas(50)
-    await press('g')
+    await beginGesture('g')
     await press('Enter')
-    await press('g')
+    await beginGesture('g', [200, 100])
     await move(200, 100)
     await move(200 + 1e-9, 100)
     await press('Enter')
@@ -960,7 +1175,7 @@ describe('direct manipulation translation', () => {
     expect(hud().exists()).toBe(false)
     editable.remove()
 
-    await press('g')
+    await beginGesture('g')
     await press('x', {}, input)
     await press('Enter', {}, input)
     expect(hud().text()).toContain('Translate · Free')
@@ -972,7 +1187,7 @@ describe('direct manipulation translation', () => {
   it('blocks Locate Cube during a draft and restores it afterwards', async () => {
     await mountWithRT()
     await clickCanvas(50)
-    await press('g')
+    await beginGesture('g')
     await wrapper.get('button[aria-label="Locate Cube"]').trigger('click')
     expect(viewport().locateCube).not.toHaveBeenCalled()
     await press('Escape')
@@ -983,7 +1198,7 @@ describe('direct manipulation translation', () => {
   it('removes draft listeners on unmount', async () => {
     await mountWithRT()
     await clickCanvas(50)
-    await press('g')
+    await beginGesture('g')
     const syncs = vi.mocked(viewportSync()).mock.calls.length
     const removed = vi.spyOn(window, 'removeEventListener')
     wrapper.unmount()
@@ -1000,23 +1215,27 @@ describe('direct manipulation translation', () => {
     const { state } = await mountWithRT()
     await clickCanvas(50)
     for (const key of ['x', 'y', 'z']) {
-      await press('g')
+      await beginGesture('g')
       await press(key)
       await move(100, 100)
       await move(200, 300)
       await press('Enter')
     }
     expect(cardIds()).toEqual(['op-5', 'op-4', 'op-3', 'op-2', 'op-1'])
-    expect(
-      stackPanel()
-        .props('state')
-        .operations.slice(0, 3)
-        .map(({ transform }: { transform: unknown }) => transform),
-    ).toEqual([
-      { type: 'translation', x: 0, y: 0, z: 3 },
-      { type: 'translation', x: 0, y: 2, z: 0 },
-      { type: 'translation', x: 1, y: 0, z: 0 },
-    ])
+    const translations = stackPanel().props('state').operations.slice(0, 3)
+    const expected = [
+      [0, 0, 3],
+      [1, 0, 0],
+      [0, 2, 0],
+    ]
+    translations.forEach(({ transform }, i) => {
+      expect(transform.type).toBe('translation')
+      for (const [j, axis] of (['x', 'y', 'z'] as const).entries())
+        expect((transform as { x: number; y: number; z: number })[axis]).toBeCloseTo(
+          expected[i]![j]!,
+          12,
+        )
+    })
     expect(stackPanel().props('state').operations.slice(3)).toEqual(state.operations)
     expectResultsInSync()
   })
@@ -1024,7 +1243,7 @@ describe('direct manipulation translation', () => {
   it('renders live draft card at the top of the stack during translation and commits it with exact continuity', async () => {
     const { committed } = await mountWithRT()
     await clickCanvas(50)
-    await press('g')
+    await beginGesture('g')
 
     const draftCard = wrapper.find('.draft-card')
     expect(draftCard.exists()).toBe(true)
@@ -1064,7 +1283,7 @@ describe('direct manipulation translation', () => {
     expect(btnX.classes()).toContain('active')
     expect(vi.mocked(viewport().setViewAxisLock)).toHaveBeenLastCalledWith('x')
 
-    await press('g')
+    await beginGesture('g')
     expect(hud().text()).toContain('Translate · Plane YZ')
     // Buttons are disabled during translation draft
     expect(btnX.attributes('disabled')).toBeDefined()
@@ -1104,7 +1323,7 @@ describe('direct manipulation translation', () => {
     expect(btnZ.attributes('aria-pressed')).toBe('true')
     expect(vi.mocked(viewport().setViewAxisLock)).toHaveBeenLastCalledWith('z')
 
-    await press('g')
+    await beginGesture('g')
     expect(hud().text()).toContain('Translate · Plane XY')
     await move(100, 100)
     await move(200, 300)
@@ -1139,7 +1358,7 @@ describe('direct manipulation translation', () => {
   it('coalesces rapid pointer moves to 1 update per RAF, flushes latest on commit, and cancels cleanly on Escape', async () => {
     await mountWithRT()
     await clickCanvas(50)
-    await press('g')
+    await beginGesture('g')
 
     const dragDeltaSpy = vi.mocked(viewport().dragDelta)
     dragDeltaSpy.mockClear()
@@ -1170,7 +1389,7 @@ describe('direct manipulation translation', () => {
     await mountWithRT()
     const hint = wrapper.find('.grab-hint')
     expect(hint.exists()).toBe(true)
-    expect(hint.text()).toContain('G — Grab')
+    expect(hint.text()).toContain('G — Move')
     expect(hint.classes()).not.toContain('selected')
 
     // Click cube to select
@@ -1178,7 +1397,7 @@ describe('direct manipulation translation', () => {
     expect(wrapper.find('.grab-hint').classes()).toContain('selected')
 
     // Start translation draft via G
-    await press('g')
+    await beginGesture('g')
     expect(wrapper.find('.grab-hint').exists()).toBe(false)
     expect(wrapper.find('.tool-hud').exists()).toBe(true)
 
@@ -1186,5 +1405,166 @@ describe('direct manipulation translation', () => {
     await press('Escape')
     expect(wrapper.find('.grab-hint').exists()).toBe(true)
     expect(wrapper.find('.tool-hud').exists()).toBe(false)
+  })
+
+  it('R Z 90 previews and commits one compact operation with the exact pivot factors', async () => {
+    const { state, committed } = await mountWithRT()
+    await clickCanvas(50)
+    await beginGesture('r')
+    expect(hud().text()).toContain('Rotate')
+    expect(wrapper.findAll('.draft-card')).toHaveLength(1)
+    expect(vi.mocked(viewport().setTransformGizmo).mock.calls.at(-1)?.[0]?.phase).toBe(
+      'rotation-draft',
+    )
+    await press('z')
+    await press('9')
+    await press('0')
+    const pivot = transformCubeVertices(committed).reduce(
+      (p, v) => p.map((n, i) => n + v.point[i]! / 8),
+      [0, 0, 0],
+    )
+    const expected = composeTransforms([
+      { type: 'translation', x: -pivot[0]!, y: -pivot[1]!, z: -pivot[2]! },
+      { type: 'rotation', axis: 'z', angle: Math.PI / 2 },
+      { type: 'translation', x: pivot[0]!, y: pivot[1]!, z: pivot[2]! },
+    ])
+    const preview = expectResultsInSync().matrix
+    preview.forEach((n, i) => expect(n).toBeCloseTo(multiply(expected, committed)[i]!, 10))
+    expect(stackPanel().props('state')).toBe(state)
+    await press('Enter')
+    expect(stackPanel().props('state').operations.slice(1)).toEqual(state.operations)
+    expect(expectResultsInSync().matrix).toEqual(preview)
+    expect(wrapper.findAll('.draft-card')).toHaveLength(0)
+  })
+
+  it('S supports uniform, axis, plane and local constraints, and right-click cancels exactly', async () => {
+    const { state, committed } = await mountWithRT()
+    await clickCanvas(50)
+    await beginGesture('s')
+    await press('2')
+    expect(hud().text()).toContain('Scale')
+    expect(wrapper.findAll('.draft-card')).toHaveLength(1)
+    expect(stackPanel().props('state')).toBe(state)
+    await press('x')
+    expect(hud().text()).toContain('X · Local')
+    await press('x')
+    expect(hud().text()).not.toContain('Local')
+    await press('z', { shiftKey: true })
+    expect(hud().text()).toContain('Plane XY')
+    canvas().element.dispatchEvent(new MouseEvent('pointerdown', { button: 2, bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(hud().exists()).toBe(false)
+    expect(stackPanel().props('state')).toBe(state)
+    expect(expectResultsInSync().matrix).toEqual(committed)
+  })
+
+  it('repeated R only activates rotation, and shortcuts inside editors leave the current tool unchanged', async () => {
+    wrapper = mount(App, { attachTo: document.body })
+    for (const key of ['r', 's']) {
+      await press(key)
+      expect(hud().exists()).toBe(false)
+    }
+    await clickCanvas(50)
+    await press('r')
+    await press('r')
+    expect(hud().exists()).toBe(false)
+    expect(wrapper.get('button[aria-label="Rotate tool"]').attributes('aria-pressed')).toBe('true')
+    await press('Escape')
+    await add('translation')
+    const input = wrapper.get('article input[name="x"]').element
+    for (const key of ['g', 'r', 's']) {
+      await press(key, {}, input)
+      expect(hud().exists()).toBe(false)
+    }
+  })
+
+  it('activates persistent rotation controls, drags a mouse-selected axis and returns to free selection', async () => {
+    wrapper = mount(App, { attachTo: document.body })
+    await clickCanvas(50)
+    await wrapper.get('button[aria-label="Rotate tool"]').trigger('click')
+    expect(hud().exists()).toBe(false)
+    expect(lastManipulation()).toEqual({ selected: true, active: false })
+    expect(vi.mocked(viewport().setTransformGizmo).mock.calls.at(-1)?.[0]?.phase).toBe(
+      'rotation-draft',
+    )
+    vi.mocked(viewport().pickTransformControl).mockReturnValue('x')
+    await pointer(canvas().element, 'pointerdown', 50)
+    expect(hud().text()).toContain('Rotate · X')
+    await move(150, 100)
+    const preview = expectResultsInSync().matrix
+    await pointer(canvas().element, 'pointerup', 150)
+    expect(hud().exists()).toBe(false)
+    expect(cardIds()).toHaveLength(1)
+    expect(expectResultsInSync().matrix).toEqual(preview)
+    expect(vi.mocked(viewport().setTransformGizmo).mock.calls.at(-1)?.[0]?.phase).toBe(
+      'rotation-draft',
+    )
+    await wrapper.get('button[aria-label="Selection tool"]').trigger('click')
+    expect(vi.mocked(viewport().setTransformGizmo).mock.calls.at(-1)?.[0]).toBeNull()
+    expect(wrapper.get('button[aria-label="Selection tool"]').attributes('aria-pressed')).toBe(
+      'true',
+    )
+  })
+
+  it('mouse-drags the scale center for uniform scaling and confirms on release', async () => {
+    wrapper = mount(App, { attachTo: document.body })
+    await clickCanvas(50)
+    await wrapper.get('button[aria-label="Scale tool"]').trigger('click')
+    vi.mocked(viewport().pickTransformControl).mockReturnValue('free')
+    await pointer(canvas().element, 'pointerdown', 50)
+    expect(hud().text()).toContain('Scale · Free')
+    await move(150, 50)
+    await pointer(canvas().element, 'pointerup', 150)
+    expect(stackPanel().props('state').operations[0]?.transform).toEqual({
+      type: 'scale',
+      x: 2,
+      y: 2,
+      z: 2,
+    })
+    expect(hud().exists()).toBe(false)
+  })
+
+  it('cancels a picked rotation control with Escape or right-click without committing on release', async () => {
+    wrapper = mount(App, { attachTo: document.body })
+    await clickCanvas(50)
+    await wrapper.get('button[aria-label="Rotate tool"]').trigger('click')
+    vi.mocked(viewport().pickTransformControl).mockReturnValue('y')
+    const original = expectResultsInSync().matrix
+    for (const cancel of ['escape', 'right-click']) {
+      await pointer(canvas().element, 'pointerdown', 50)
+      await move(150, 100)
+      expect(expectResultsInSync().matrix).not.toEqual(original)
+      if (cancel === 'escape') await press('Escape')
+      else {
+        canvas().element.dispatchEvent(new MouseEvent('pointerdown', { button: 2, bubbles: true }))
+      }
+      const contextMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+      canvas().element.dispatchEvent(contextMenu)
+      expect(contextMenu.defaultPrevented).toBe(cancel === 'right-click')
+      await wrapper.vm.$nextTick()
+      await pointer(canvas().element, 'pointerup', 150)
+      expect(expectResultsInSync().matrix).toEqual(original)
+      expect(cardIds()).toHaveLength(0)
+      expect(hud().exists()).toBe(false)
+      expect(wrapper.get('button[aria-label="Rotate tool"]').attributes('aria-pressed')).toBe(
+        'true',
+      )
+    }
+  })
+
+  it('moves keyboard focus from a matrix editor to a picked viewport control for numeric input', async () => {
+    wrapper = mount(App, { attachTo: document.body })
+    await clickCanvas(50)
+    await add('translation')
+    const input = wrapper.get('article input[name="x"]')
+    await input.setValue('1')
+    ;(input.element as HTMLInputElement).focus()
+    await wrapper.get('button[aria-label="Scale tool"]').trigger('click')
+    vi.mocked(viewport().pickTransformControl).mockReturnValue('x')
+    await pointer(canvas().element, 'pointerdown', 50)
+    await press('2', {}, document.activeElement!)
+    expect(document.activeElement).toBe(canvas().element)
+    expect(hud().text()).toContain('S(2, 1, 1)')
+    expect((input.element as HTMLInputElement).value).toBe('1')
   })
 })

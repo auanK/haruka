@@ -27,6 +27,17 @@ const shear: Transform = Object.freeze({
 const transforms = Object.freeze([translation, rotation, scale])
 
 describe('composeTransforms', () => {
+  it('composes exact fixed coordinate frames around one semantic rotation without decomposing it', () => {
+    const frame = toMatrix({ type: 'rotation', axis: 'z', angle: Math.PI / 2 })
+    const inverse = toMatrix({ type: 'rotation', axis: 'z', angle: -Math.PI / 2 })
+    const angle = { type: 'rotation', axis: 'x', angle: Math.PI / 4 } as const
+    const factors = Object.freeze([inverse, angle, frame])
+    const actual = composeTransforms(factors)
+    const expected = toMatrix({ type: 'rotation', axis: 'y', angle: Math.PI / 4 })
+    actual.forEach((n, i) => expect(n).toBeCloseTo(expected[i]!, 14))
+    expect(computeTransformStages(factors)).toHaveLength(4)
+    expect(frame).toEqual(toMatrix({ type: 'rotation', axis: 'z', angle: Math.PI / 2 }))
+  })
   it('composes an empty stack to identity', () => {
     expect(composeTransforms([])).toEqual(identity())
   })

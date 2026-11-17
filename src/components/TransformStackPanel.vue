@@ -3,13 +3,18 @@ import { computed, ref } from 'vue'
 import {
   addTransformOperation,
   createOperationId,
+  createPivotOperation,
+  getTransformSequence,
+  resolveTransformStackState,
+  setOperationPivotEnabled,
   updateTransformOperation,
   removeTransformOperation,
   moveTransformOperation,
   type StackEditResult,
   type TransformStackState,
+  type TransformOperation,
 } from '../app/transform-stack-state'
-import { toMatrix, type Transform } from '../domain'
+import { composeTransforms, type Transform } from '../domain'
 import { createDefaultTransform } from '../ui/transform-stack'
 import {
   deriveDestinationIndex,
@@ -17,14 +22,15 @@ import {
   isInteractiveDragTarget,
   mapRemainingSlotToOriginalSlot,
 } from '../ui/transform-stack-dnd'
-import Matrix4Grid from './Matrix4Grid.vue'
 import TransformOperationEditor from './TransformOperationEditor.vue'
+import JointTransformCard from './JointTransformCard.vue'
 import type { DisplayPrecision } from '../ui/transform-stack'
 
 const props = withDefaults(
   defineProps<{
     state: TransformStackState
     draftTransform?: Transform | null
+    draftOperation?: TransformOperation | null
     precision?: DisplayPrecision
   }>(),
   {
@@ -34,6 +40,14 @@ const props = withDefaults(
 )
 const emit = defineEmits<{ edit: [result: StackEditResult] }>()
 const selectedType = ref<Transform['type']>('translation')
+const previewOperation = computed(
+  () =>
+    props.draftOperation ??
+    (props.draftTransform ? { id: 'draft', transform: props.draftTransform } : null),
+)
+const resolvedOperations = computed(() => resolveTransformStackState(props.state).operations)
+const editOperation = (operation: TransformOperation, transform: Transform) =>
+  emit('edit', updateTransformOperation(props.state, operation.id, transform))
 const dragState = ref<{ operationId: string; insertionSlot: number | null } | null>(null)
 let dragOrigin: EventTarget | null = null
 const indicatorSlot = computed(() => {
@@ -55,14 +69,16 @@ const transformTypes = {
   shear: 'Shear',
 }
 
-const addOperation = () =>
-  emit(
-    'edit',
-    addTransformOperation(props.state, {
-      id: createOperationId(props.state),
-      transform: createDefaultTransform(selectedType.value),
-    }),
-  )
+const addOperation = () => {
+  const id = createOperationId(props.state)
+  const transform = createDefaultTransform(selectedType.value)
+  const matrix = composeTransforms(getTransformSequence(props.state))
+  const operation =
+    transform.type === 'rotation' || transform.type === 'scale'
+      ? createPivotOperation(id, transform, [matrix[3], matrix[7], matrix[11]], false)
+      : { id, transform }
+  emit('edit', addTransformOperation(props.state, operation))
+}
 
 const startDrag = (operationId: string, event: DragEvent) => {
   // Native dragstart can target the draggable article instead of the pressed control.
@@ -158,27 +174,22 @@ const dropOperation = (event: DragEvent) => {
         <button type="submit" aria-label="Add Transform" title="Add Transform">+</button>
       </form>
     </header>
-    <aside v-if="draftTransform" class="draft-card" aria-label="Draft transformation preview">
-      <div class="draft-card-header">
-        <div class="draft-title-group">
-          <h2>{{ transformTypes[draftTransform.type] }}</h2>
-          <span class="notation">{{
-            draftTransform.type === 'translation' ? 'T(x, y, z)' : ''
-          }}</span>
-        </div>
-        <span class="draft-badge">Preview</span>
-      </div>
-      <div class="draft-matrix" tabindex="0" role="region" aria-label="Draft matrix values">
-        <Matrix4Grid
-          :matrix="toMatrix(draftTransform)"
-          :precision="precision"
-          caption=""
-          class="operation-matrix"
-        />
-      </div>
+    <aside v-if="previewOperation" class="draft-card" aria-label="Draft transformation preview">
+      <JointTransformCard
+        v-if="previewOperation.joint"
+        :operation="previewOperation"
+        :precision="precision"
+        preview
+      />
+      <TransformOperationEditor v-else :operation="previewOperation" :precision="precision" preview>
+        <template #title
+          ><h2>{{ transformTypes[previewOperation.transform.type] }}</h2></template
+        >
+        <template #controls><span class="draft-badge">Preview</span></template>
+      </TransformOperationEditor>
     </aside>
-    <p v-if="state.operations.length === 0 && !draftTransform">No transformations.</p>
-    <template v-for="(operation, index) in state.operations" :key="operation.id">
+    <p v-if="state.operations.length === 0 && !previewOperation">No transformations.</p>
+    <template v-for="(operation, index) in resolvedOperations" :key="operation.id">
       <div
         v-if="indicatorSlot === index"
         class="drop-indicator"
@@ -192,10 +203,19 @@ const dropOperation = (event: DragEvent) => {
         @mousedown.capture="recordDragOrigin"
         @dragstart="startDrag(operation.id, $event)"
       >
-        <TransformOperationEditor
+        <component
+          :is="operation.joint ? JointTransformCard : TransformOperationEditor"
           :operation="operation"
           :precision="precision"
-          @update-transform="emit('edit', updateTransformOperation(state, operation.id, $event))"
+          v-on="
+            operation.joint
+              ? {
+                  'update-pivot': (enabled: boolean) =>
+                    emit('edit', setOperationPivotEnabled(state, operation.id, enabled)),
+                }
+              : {}
+          "
+          @update-transform="(transform: Transform) => editOperation(operation, transform)"
         >
           <template #title>
             <h2>{{ transformTypes[operation.transform.type] }}</h2>
@@ -231,7 +251,7 @@ const dropOperation = (event: DragEvent) => {
               </button>
             </div>
           </template>
-        </TransformOperationEditor>
+        </component>
       </article>
     </template>
     <div

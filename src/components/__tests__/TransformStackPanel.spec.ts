@@ -32,6 +32,32 @@ const expectClean = () => {
 }
 
 describe('transformation stack drag identity', () => {
+  it('adds a normal scale on top with pivot compensation disabled', async () => {
+    const state: TransformStackState = {
+      operations: [{ id: 'r', transform: { type: 'rotation', axis: 'x', angle: Math.PI / 4 } }],
+    }
+    wrapper = mount(TransformStackPanel, { props: { state } })
+    await wrapper.get('select[name="transform-type"]').setValue('scale')
+    await wrapper.get('form').trigger('submit')
+    const edit = wrapper.emitted('edit')![0]![0] as { ok: true; state: TransformStackState }
+    expect(edit.state.operations[1]).toEqual(state.operations[0])
+    expect(edit.state.operations[0]).toMatchObject({
+      transform: { type: 'scale' },
+      joint: { pivotEnabled: false },
+    })
+  })
+  it('adds pure rotations with pivot compensation disabled by default and has no display-mode selector', async () => {
+    const state: TransformStackState = {
+      operations: [{ id: 't', transform: { type: 'translation', x: 2, y: 3, z: 4 } }],
+    }
+    wrapper = mount(TransformStackPanel, { props: { state } })
+    await wrapper.get('select[name="transform-type"]').setValue('rotation')
+    await wrapper.get('form').trigger('submit')
+    const edit = wrapper.emitted('edit')![0]![0] as { ok: true; state: TransformStackState }
+    expect(edit.state.operations[0]!.joint!.pivot).toEqual([2, 3, 4])
+    expect(edit.state.operations[0]!.joint!.pivotEnabled).toBe(false)
+    expect(wrapper.find('select[aria-label="Composed matrix view"]').exists()).toBe(false)
+  })
   it('resolves the current source index by stable ID at drop, ignoring DataTransfer identity', async () => {
     await startDrag()
     await wrapper.setProps({

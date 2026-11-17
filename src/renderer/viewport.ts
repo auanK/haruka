@@ -9,7 +9,14 @@ import {
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { cubeVertices, type CubeVertex } from '../app/didactic-cube'
-import type { AxisConstraint, LockedAxis } from '../app/direct-manipulation'
+import {
+  getGestureDirection,
+  type AxisConstraint,
+  type LockedAxis,
+  type ManipulationDraft,
+  type GestureView,
+  type GestureMeasurement,
+} from '../app/direct-manipulation'
 import type { Matrix4 as HarukaMatrix4, Point3 } from '../domain'
 import { deriveCameraClipping } from './camera-clipping'
 import { createOrientationGizmo, type OrientationGizmo } from './orientation-gizmo'
@@ -20,6 +27,8 @@ import { deriveReferenceFrame, type ReferenceFrame } from './reference-frame'
 import { deriveOrthographicFit, projectVerticesToViewPlane } from './orthographic-fit'
 import { applyHarukaMatrixToObject } from './three-matrix'
 import { deriveTranslationDelta, toNdc } from './translation-drag'
+import { derivePointerTranslation, deriveRotationAngle, deriveScaleFactor } from './transform-drag'
+import { createTransformGizmo } from './transform-gizmo'
 
 export const MAX_WEBGL_DPR = DEFAULT_MAX_WEBGL_DPR
 
@@ -46,6 +55,14 @@ export type HarukaViewport = Omit<HarukaScene, 'camera'> & {
     lockedAxis?: LockedAxis,
   ) => Point3 | null
   readonly setManipulation: (data: { readonly selected: boolean; readonly active: boolean }) => void
+  readonly getGestureView: (pivot: Point3) => GestureView
+  readonly measureGesture: (
+    draft: ManipulationDraft,
+    pointer: readonly [number, number],
+  ) => GestureMeasurement
+  readonly setTransformGizmo: (draft: ManipulationDraft | null, active?: boolean) => void
+  readonly pickTransformControl: (x: number, y: number) => AxisConstraint | null
+  readonly hoverTransformControl: (x: number | null, y: number) => AxisConstraint | null
   readonly setViewAxisLock: (lock: ViewAxisLock) => void
   readonly referenceFrame: ReferenceFrame
   readonly dispose: () => void
@@ -173,6 +190,8 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
   })
   const graph = createHarukaScene()
   const gizmo = createOrientationGizmo()
+  const transformGizmo = createTransformGizmo()
+  graph.scene.add(transformGizmo.group)
   const { camera } = graph
   const orthographicCamera = new OrthographicCamera(-5, 5, 5, -5, 0.1, 2000)
   let activeCamera: PerspectiveCamera | OrthographicCamera = camera
@@ -188,6 +207,8 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
   let resizeDirty = true
 
   container.appendChild(renderer.domElement)
+  renderer.domElement.tabIndex = 0
+  renderer.domElement.setAttribute('aria-label', '3D viewport')
 
   const controls = new OrbitControls(camera as Camera, renderer.domElement)
   controls.enableDamping = false
@@ -289,6 +310,7 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
     if (activeLock !== null) {
       graph.updateVertexLabels(latestVertices, activeCamera, true)
     }
+    transformGizmo.update(activeCamera, width, height, graph.target.matrix)
     renderViewport(
       renderer,
       graph,
@@ -522,8 +544,64 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
     readonly active: boolean
   }): void => {
     controls.enabled = !active
+    renderer.domElement.style.cursor = active ? 'grabbing' : ''
     graph.setHighlight(selected)
     scheduler.requestRender()
+  }
+
+  const getGestureView = (pivot: Point3): GestureView => {
+    const rect = renderer.domElement.getBoundingClientRect()
+    activeCamera.updateMatrixWorld(true)
+    const p = new Vector3(...pivot).project(activeCamera)
+    return {
+      pivot: [rect.left + ((p.x + 1) * rect.width) / 2, rect.top + ((1 - p.y) * rect.height) / 2],
+      facing: activeCamera.getWorldDirection(new Vector3()).negate().toArray(),
+      right: new Vector3().setFromMatrixColumn(activeCamera.matrixWorld, 0).normalize().toArray(),
+      up: new Vector3().setFromMatrixColumn(activeCamera.matrixWorld, 1).normalize().toArray(),
+    }
+  }
+
+  const measureGesture = (
+    draft: ManipulationDraft,
+    pointer: readonly [number, number],
+  ): GestureMeasurement => {
+    const rect = renderer.domElement.getBoundingClientRect()
+    const start = draft.start ?? pointer
+    if (draft.phase === 'translation-draft') {
+      const direction = draft.axis === 'free' ? null : getGestureDirection(draft)
+      const normal = draft.gesture?.plane
+        ? direction
+        : draft.lockedAxis
+          ? new Vector3(
+              draft.lockedAxis === 'x' ? 1 : 0,
+              draft.lockedAxis === 'y' ? 1 : 0,
+              draft.lockedAxis === 'z' ? 1 : 0,
+            ).toArray()
+          : null
+      return {
+        translation: derivePointerTranslation(
+          activeCamera,
+          rect,
+          start,
+          pointer,
+          draft.pivot,
+          draft.gesture?.plane ? null : direction,
+          normal,
+        ),
+      }
+    }
+    if (draft.phase === 'scale-draft')
+      return { factor: deriveScaleFactor(start, pointer, draft.gesture.view.pivot) }
+    return {
+      angle: deriveRotationAngle(
+        activeCamera,
+        rect,
+        start,
+        pointer,
+        draft.pivot,
+        getGestureDirection(draft),
+      ),
+    }
   }
 
   // Request initial frame
@@ -544,6 +622,29 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
     pick,
     dragDelta,
     setManipulation,
+    getGestureView,
+    measureGesture,
+    setTransformGizmo: (draft, active = false) => {
+      transformGizmo.setDraft(draft, active)
+      renderer.domElement.style.cursor = active ? 'grabbing' : ''
+      scheduler.requestRender()
+    },
+    pickTransformControl: (x, y) =>
+      transformGizmo.pickControl(activeCamera, renderer.domElement.getBoundingClientRect(), x, y),
+    hoverTransformControl: (x, y) => {
+      const control =
+        x === null
+          ? null
+          : transformGizmo.pickControl(
+              activeCamera,
+              renderer.domElement.getBoundingClientRect(),
+              x,
+              y,
+            )
+      renderer.domElement.style.cursor = control ? 'grab' : ''
+      if (transformGizmo.setHovered(control)) scheduler.requestRender()
+      return control
+    },
     setViewAxisLock,
     get referenceFrame(): ReferenceFrame {
       return deriveReferenceFrame(activeLock)
@@ -555,6 +656,7 @@ export const mountHarukaViewport = (container: HTMLElement): HarukaViewport => {
       controls.removeEventListener('change', onControlsChange)
       controls.dispose()
       gizmo.dispose()
+      transformGizmo.dispose()
       graph.dispose()
       renderer.dispose()
       renderer.domElement.remove()
