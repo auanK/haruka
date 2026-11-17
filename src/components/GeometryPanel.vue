@@ -84,10 +84,9 @@ const onPrecisionChange = (event: Event) => {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  flex: 0 0 auto;
-  width: max-content;
-  min-width: 14rem;
-  max-width: max(14rem, min(26rem, 30vw));
+  flex: 0 0 clamp(13rem, 24vw, 23rem);
+  width: clamp(13rem, 24vw, 23rem);
+  min-width: 0;
   height: 100%;
   border-right: 1px solid var(--color-border);
   border-top: 2px solid var(--color-interaction);
@@ -117,8 +116,8 @@ const onPrecisionChange = (event: Event) => {
   font-size: 11px;
   font-family: inherit;
   background: var(--color-input);
-  color: inherit;
-  border: 1px solid var(--color-border);
+  color: var(--color-interaction-light);
+  border: 1px solid color-mix(in srgb, var(--color-interaction) 35%, var(--color-border));
   border-radius: 2px;
   padding: 1px 4px;
 }
@@ -143,14 +142,14 @@ h1 {
 }
 
 .panel-content :deep(caption) {
-  color: var(--color-selection);
+  color: var(--color-interaction-light);
   font-weight: 500;
 }
 
 .vertex-table {
   width: 100%;
   max-width: none;
-  table-layout: fixed;
+  table-layout: auto;
   border-collapse: collapse;
   font-family: monospace;
   font-size: 12.5px;
@@ -196,13 +195,13 @@ h1 {
   white-space: nowrap;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .geometry-panel {
-    flex: 0 1 auto;
+    flex: 0 0 13rem;
     width: 100%;
     min-width: 0;
     max-width: none;
-    height: auto;
+    height: 13rem;
     border-right: none;
     border-top: 2px solid var(--color-interaction);
     border-bottom: 1px solid var(--color-border);

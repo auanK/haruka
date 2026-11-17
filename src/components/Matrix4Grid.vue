@@ -45,7 +45,7 @@ const indices = [0, 1, 2, 3] as const
 table {
   width: 100%;
   max-width: none;
-  table-layout: fixed;
+  table-layout: auto;
   margin-top: 0.3rem;
   border-collapse: collapse;
   border-inline: 1px solid var(--color-border);
@@ -66,7 +66,7 @@ caption {
 }
 
 td {
-  min-width: 8ch;
+  min-width: 6ch;
   padding: 0.2rem 0.4rem;
   text-align: right;
   white-space: nowrap;

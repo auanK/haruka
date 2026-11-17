@@ -142,20 +142,22 @@ const dropOperation = (event: DragEvent) => {
     @dragend="endDrag"
     @mouseup.capture="dragOrigin = null"
   >
-    <h1 id="stack-title">Transformation Stack</h1>
-    <p>
-      Matrix product: top → bottom.<br />
-      Applied to points: bottom → top.
-    </p>
-    <form @submit.prevent="addOperation">
-      <label class="visually-hidden" for="transform-type">Transform type</label>
-      <select id="transform-type" v-model="selectedType" name="transform-type">
-        <option v-for="(label, type) in transformTypes" :key="type" :value="type">
-          {{ label }}
-        </option>
-      </select>
-      <button type="submit" aria-label="Add Transform" title="Add Transform">+</button>
-    </form>
+    <header class="stack-header">
+      <h1 id="stack-title">Transformation Stack</h1>
+      <p>
+        Matrix product: top → bottom.<br />
+        Applied to points: bottom → top.
+      </p>
+      <form @submit.prevent="addOperation">
+        <label class="visually-hidden" for="transform-type">Transform type</label>
+        <select id="transform-type" v-model="selectedType" name="transform-type">
+          <option v-for="(label, type) in transformTypes" :key="type" :value="type">
+            {{ label }}
+          </option>
+        </select>
+        <button type="submit" aria-label="Add Transform" title="Add Transform">+</button>
+      </form>
+    </header>
     <aside v-if="draftTransform" class="draft-card" aria-label="Draft transformation preview">
       <div class="draft-card-header">
         <div class="draft-title-group">
@@ -166,12 +168,14 @@ const dropOperation = (event: DragEvent) => {
         </div>
         <span class="draft-badge">Preview</span>
       </div>
-      <Matrix4Grid
-        :matrix="toMatrix(draftTransform)"
-        :precision="precision"
-        caption=""
-        class="operation-matrix"
-      />
+      <div class="draft-matrix" tabindex="0" role="region" aria-label="Draft matrix values">
+        <Matrix4Grid
+          :matrix="toMatrix(draftTransform)"
+          :precision="precision"
+          caption=""
+          class="operation-matrix"
+        />
+      </div>
     </aside>
     <p v-if="state.operations.length === 0 && !draftTransform">No transformations.</p>
     <template v-for="(operation, index) in state.operations" :key="operation.id">
@@ -242,23 +246,29 @@ const dropOperation = (event: DragEvent) => {
 <style scoped>
 .stack-panel {
   box-sizing: border-box;
-  flex: 0 0 auto;
-  width: max-content;
-  min-width: 22rem;
-  max-width: max(22rem, min(28rem, 32vw));
+  flex: 0 0 clamp(18rem, 26vw, 25rem);
+  width: clamp(18rem, 26vw, 25rem);
+  min-width: 0;
   height: 100%;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   padding: 0.5rem 0.6rem;
   border-left: 1px solid var(--color-border);
-  border-top: 2px solid var(--color-selection);
+  border-top: 2px solid var(--color-selection-strong);
   background: var(--color-panel);
+}
+
+.stack-header {
+  margin: -0.5rem -0.6rem 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--color-border);
 }
 
 h1 {
   margin: 0 0 0.2rem;
   font-size: 0.95rem;
+  color: var(--color-text);
 }
 h2 {
   min-width: 0;
@@ -275,7 +285,7 @@ form {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  margin-bottom: 0.5rem;
+  margin: 0;
 }
 form select {
   flex: 1;
@@ -284,31 +294,85 @@ form select {
   min-height: 24px;
   padding: 0.1rem 0.3rem;
   font-size: 11px;
-  border-color: color-mix(in srgb, var(--color-interaction) 30%, var(--color-border));
+  border-color: color-mix(in srgb, var(--color-selection) 55%, var(--color-border));
 }
 form select:hover {
-  border-color: var(--color-interaction);
+  border-color: var(--color-selection);
+}
+form select option:checked {
+  color: var(--color-text);
+  background: var(--color-selection-strong);
+}
+@supports (appearance: base-select) {
+  form select,
+  form select::picker(select) {
+    appearance: base-select;
+  }
+  form select {
+    display: flex;
+    align-items: center;
+  }
+  form select::picker-icon {
+    content: '';
+    box-sizing: border-box;
+    width: 6px;
+    height: 6px;
+    margin-right: 2px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-2px) rotate(45deg);
+  }
+  form select::picker(select) {
+    padding: 0;
+    border: 1px solid var(--color-text-subtle);
+    border-radius: 0;
+    background: var(--color-panel);
+    font: inherit;
+  }
+  form select option {
+    min-height: 24px;
+    padding: 0 0.5rem;
+    background: var(--color-panel);
+  }
+  form select option::checkmark {
+    display: none;
+  }
+  form select option:checked,
+  form select option:hover,
+  form select option:focus {
+    color: var(--color-text);
+    background: var(--color-selection-strong);
+    outline: none;
+  }
+  form select:has(option:hover) option:not(:hover) {
+    background: var(--color-panel);
+  }
+}
+select:focus-visible,
+button:focus-visible,
+.draft-matrix:focus-visible {
+  outline: 2px solid var(--color-hair-light);
+  outline-offset: 1px;
 }
 form button {
   width: 24px;
   height: 24px;
   min-height: 24px;
   font-size: 0.85rem;
-  color: var(--color-interaction-light);
-  border: 1px solid color-mix(in srgb, var(--color-interaction) 45%, var(--color-border));
-  background: color-mix(in srgb, var(--color-interaction) 14%, var(--color-surface));
+  color: var(--color-text);
+  border: 1px solid var(--color-selection);
+  background: var(--color-selection-strong);
 }
 form button:hover:enabled {
-  color: #fff;
-  border-color: var(--color-interaction);
-  background: color-mix(in srgb, var(--color-interaction) 26%, var(--color-surface));
+  border-color: var(--color-hair-light);
+  background: color-mix(in srgb, var(--color-selection) 25%, var(--color-selection-strong));
 }
 article {
   position: relative;
   margin-top: 0.4rem;
   padding: 0.35rem 0.45rem;
   border: 1px solid var(--color-border);
-  border-left: 3px solid var(--color-uniform-red);
+  border-left: 3px solid var(--color-selection-strong);
   border-radius: 3px;
   background: var(--color-surface);
   box-sizing: border-box;
@@ -342,15 +406,12 @@ article:has(
 }
 .dragging {
   cursor: grabbing;
-  background: color-mix(in srgb, var(--color-selection) 10%, var(--color-surface));
-  border-color: color-mix(in srgb, var(--color-selection) 35%, var(--color-border));
-  border-left-color: var(--color-uniform-red);
 }
 .drop-indicator {
   position: relative;
   height: 2px;
   margin-top: 0.4rem;
-  background: var(--color-interaction);
+  background: var(--color-selection);
   pointer-events: none;
 }
 .drop-indicator::before {
@@ -361,12 +422,12 @@ article:has(
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--color-interaction);
+  background: var(--color-selection);
   transform: translateY(-50%);
 }
 .operation-controls button:not(.remove):hover:enabled {
-  border-color: var(--color-interaction);
-  color: var(--color-interaction-light);
+  border-color: var(--color-selection);
+  color: var(--color-hair-light);
 }
 .remove {
   color: var(--color-danger);
@@ -374,13 +435,26 @@ article:has(
 .remove:hover:enabled {
   border-color: var(--color-danger);
 }
+.remove:focus-visible {
+  outline-color: var(--color-danger);
+}
 .draft-card {
   box-sizing: border-box;
   margin-top: 0.5rem;
   padding: 0.5rem;
-  border: 1px dashed var(--color-interaction);
+  border: 1px dashed var(--color-border);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--color-interaction) 8%, var(--color-surface));
+}
+article:focus-within,
+article.dragging,
+.draft-card {
+  border-color: color-mix(in srgb, var(--color-hair-light) 65%, var(--color-border));
+  border-left: 3px solid var(--color-hair-light);
+  background: color-mix(in srgb, var(--color-selection) 14%, var(--color-surface));
+}
+.draft-matrix {
+  min-width: 0;
+  overflow-x: auto;
 }
 .draft-card-header {
   display: flex;
@@ -400,7 +474,7 @@ article:has(
   font-weight: 600;
 }
 .draft-title-group .notation {
-  color: var(--color-selection);
+  color: var(--color-hair-light);
   font-size: 12px;
   font-weight: 500;
 }
@@ -411,18 +485,17 @@ article:has(
   letter-spacing: 0.05em;
   padding: 1px 6px;
   border-radius: 3px;
-  color: var(--color-interaction-light);
-  background: color-mix(in srgb, var(--color-interaction) 20%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-interaction) 40%, transparent);
+  color: var(--color-hair-light);
+  background: color-mix(in srgb, var(--color-selection) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-selection) 40%, transparent);
 }
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .stack-panel {
-    flex: 1;
+    flex: 1 0 18rem;
     width: 100%;
     min-width: 0;
     max-width: none;
     height: auto;
-    border-top: 2px solid var(--color-selection);
     border-left: 0;
   }
 }

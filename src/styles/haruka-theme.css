@@ -19,6 +19,7 @@
   /* Hair / Magenta */
   --color-hair: #bd5688;
   --color-hair-strong: #873765;
+  --color-hair-light: #e38fba;
   --color-selection: var(--color-hair);
   --color-selection-strong: var(--color-hair-strong);
 

@@ -432,12 +432,12 @@ main {
   position: absolute;
   top: 10px;
   left: 10px;
-  display: flex;
-  gap: 4px;
+  pointer-events: none;
   z-index: 10;
 }
 
 .camera-toolbar button {
+  pointer-events: auto;
   font-size: 11px;
   padding: 0.15rem 0.4rem;
   min-height: 22px;
@@ -528,7 +528,8 @@ main {
 }
 
 .grab-hint.selected {
-  opacity: 0.75;
+  color: var(--color-selection);
+  opacity: 1;
 }
 
 .tool-hud {
@@ -565,14 +566,15 @@ main {
   z-index: 10;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   main {
     flex-direction: column;
+    overflow-y: auto;
   }
   .viewport {
-    flex: 0 0 45%;
+    flex: 0 0 40%;
     height: auto;
-    min-height: 0;
+    min-height: 220px;
   }
 }
 </style>

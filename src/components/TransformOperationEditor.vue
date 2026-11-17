@@ -202,6 +202,7 @@ const selectPlane = (plane: ReflectionPlane) => {
 }
 
 .operation-editor {
+  min-width: 0;
   overflow-x: auto;
 }
 
@@ -211,7 +212,7 @@ const selectPlane = (plane: ReflectionPlane) => {
   flex-wrap: wrap;
   gap: 0.25rem;
   min-height: 18px;
-  color: var(--color-selection);
+  color: var(--color-hair-light);
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -275,18 +276,19 @@ input::-webkit-outer-spin-button {
 
 .cell-control:hover,
 .axis-selector button:hover:enabled {
-  border-color: var(--color-interaction);
+  border-color: var(--color-selection);
 }
 
 .axis-selector button:not([aria-pressed='true']):hover:enabled {
-  color: var(--color-interaction-light);
+  color: var(--color-hair-light);
 }
 
 .cell-control:focus-visible,
+.axis-selector button:focus-visible,
 .angle-editor:focus-within {
-  outline: 2px solid var(--color-interaction);
+  outline: 2px solid var(--color-hair-light);
   outline-offset: -1px;
-  border-color: var(--color-interaction);
+  border-color: var(--color-selection);
 }
 
 .cell-control[aria-pressed='true'],

@@ -431,7 +431,7 @@ describe('transformation stack integration', () => {
     for (const [axis, value] of [1, 4.5, -2].entries()) {
       expect(vertices[0]!.point[axis]).toBeCloseTo(value, 12)
     }
-    const copy = wrapper.get('.stack-panel > p').text()
+    const copy = wrapper.get('.stack-header p').text()
     expect(copy).not.toContain('Applied from top to bottom.')
     expect(copy).toContain('Matrix product: top → bottom.')
     expect(copy).toContain('Applied to points: bottom → top.')
