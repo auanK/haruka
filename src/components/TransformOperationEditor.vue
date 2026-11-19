@@ -184,11 +184,11 @@ const selectPlane = (plane: ReflectionPlane) => {
             @keydown.enter.prevent="beginAngleEdit(index)"
           >
             <span>{{ cells[index]!.expression }}</span
-            ><wbr /><span
+            ><span
               class="rotation-argument"
               :style="{
                 '--angle-chars':
-                  (formatMatrixValue(cells[index]!.degrees, precision).length + 3) * 0.62,
+                  (formatMatrixValue(cells[index]!.degrees, precision).length + 3) * 0.61,
               }"
               >({{ formatMatrixValue(cells[index]!.degrees, precision) }}°)</span
             >
@@ -220,7 +220,7 @@ const selectPlane = (plane: ReflectionPlane) => {
   flex-wrap: nowrap;
   gap: 3px;
   box-sizing: border-box;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
   min-height: 20px;
   padding-inline-end: 48px;
 }
@@ -275,7 +275,12 @@ const selectPlane = (plane: ReflectionPlane) => {
   margin-top: 0;
 }
 .operation-matrix :deep(td) {
+  height: 27px;
+  padding: 2.5px 1.5px;
   text-align: center;
+}
+.operation-matrix.rotation-matrix :deep(td) {
+  height: 31px;
 }
 .cell-control,
 .angle-editor {
@@ -285,15 +290,15 @@ const selectPlane = (plane: ReflectionPlane) => {
   justify-content: center;
   width: 100%;
   min-width: 0;
-  min-height: 20px;
-  height: 20px;
-  padding: 0 2px;
+  min-height: 22px;
+  height: 22px;
+  padding: 0 1px;
   border: 1px solid color-mix(in srgb, var(--color-selection) 15%, var(--color-border));
   border-radius: 2px;
   background: color-mix(in srgb, var(--color-selection) 16%, var(--color-input));
   color: inherit;
   font: inherit;
-  line-height: 16px;
+  line-height: 18px;
   text-align: center;
   white-space: nowrap;
 }
@@ -339,6 +344,8 @@ input::-webkit-outer-spin-button {
   z-index: 5;
   width: max-content;
   min-width: 100%;
+  min-height: 24px;
+  height: 24px;
   padding: 0 3px;
   background: var(--color-input);
   box-shadow: 0 0 0 1px var(--color-selection);
@@ -348,16 +355,22 @@ input::-webkit-outer-spin-button {
   right: 0;
 }
 .rotation-cell {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  height: 26px;
+  min-height: 26px;
   container-type: inline-size;
   white-space: normal;
-  line-height: 9px;
-  padding-inline: 1px;
+  line-height: 11px;
+  padding: 1px;
 }
 .rotation-argument {
-  display: inline-block;
+  display: block;
   font-size: min(1em, calc((100cqw - 2px) / var(--angle-chars)));
-  line-height: 9px;
+  line-height: 11px;
 }
 .angle-editor input {
   flex: 0 1 auto;

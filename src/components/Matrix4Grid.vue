@@ -54,7 +54,7 @@ table {
   font-family: monospace;
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
-  line-height: 18px;
+  line-height: 20px;
 }
 
 caption {
@@ -70,8 +70,8 @@ td {
   box-sizing: border-box;
   width: 25%;
   min-width: 0;
-  height: 22px;
-  padding: 1px 3px;
+  height: 26px;
+  padding: 2px 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: right;

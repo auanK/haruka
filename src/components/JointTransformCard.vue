@@ -80,12 +80,8 @@ const pivotFactors = computed(() => {
           <span
             v-if="pivotEnabled"
             class="pivot-indicator"
-            :title="
-              pivotEnabled
-                ? 'Around own center; expand for fixed pivot translations'
-                : 'Around world origin; pivot disabled'
-            "
-            >{{ '↔ P' }}</span
+            title="Around own center; expand for fixed pivot translations"
+            >P</span
           >
         </template>
         <template #controls>
@@ -130,6 +126,9 @@ const pivotFactors = computed(() => {
 .main-matrix {
   min-width: 0;
 }
+.joint-transform {
+  container-type: inline-size;
+}
 .main-matrix {
   position: relative;
 }
@@ -153,9 +152,13 @@ h2 {
   background: transparent;
 }
 .pivot-indicator {
-  color: var(--color-text-muted);
   flex: 0 0 auto;
-  font: 9px monospace;
+  padding: 0 3px;
+  border: 1px solid color-mix(in srgb, var(--color-selection) 45%, var(--color-border));
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-selection) 12%, transparent);
+  color: var(--color-hair-light);
+  font: 9.5px/13px monospace;
   cursor: help;
 }
 .composition {
@@ -187,6 +190,11 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.35rem;
 }
+@container (max-width: 260px) {
+  .pivot-factor-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .pivot-factor-grid.inactive {
   opacity: 0.45;
 }
@@ -215,6 +223,7 @@ h2 {
   margin-top: 2px;
 }
 .fixed-factor :deep(td) {
+  height: 20px;
   min-width: 2ch;
   padding: 1px 2px;
 }

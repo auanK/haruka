@@ -307,22 +307,23 @@ const dropOperation = (event: DragEvent) => {
 <style scoped>
 .stack-panel {
   box-sizing: border-box;
-  flex: 0 0 clamp(18rem, 26vw, 25rem);
-  width: clamp(18rem, 26vw, 25rem);
+  flex: 0 0 clamp(18rem, 20vw, 20rem);
+  width: clamp(18rem, 20vw, 20rem);
   min-width: 0;
   height: 100%;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 0.5rem 0.6rem;
+  scrollbar-width: thin;
+  padding: 0.5rem;
   border-left: 1px solid var(--color-border);
   border-top: 2px solid var(--color-selection-strong);
   background: var(--color-panel);
 }
 
 .stack-header {
-  margin: -0.5rem -0.6rem 0.5rem;
-  padding: 0.5rem 0.6rem;
+  margin: -0.5rem -0.5rem 0.5rem;
+  padding: 0.5rem;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -430,8 +431,8 @@ form button:hover:enabled {
 }
 article {
   position: relative;
-  margin-top: 0.4rem;
-  padding: 0.25rem 0.35rem;
+  margin-top: 0.45rem;
+  padding: 0.35rem 0.3rem;
   border: 1px solid var(--color-border);
   border-left: 3px solid var(--color-selection-strong);
   border-radius: 3px;
@@ -501,8 +502,8 @@ article:has(
 }
 .draft-card {
   box-sizing: border-box;
-  margin-top: 0.5rem;
-  padding: 0.25rem 0.35rem;
+  margin-top: 0.45rem;
+  padding: 0.35rem 0.3rem;
   border: 1px dashed var(--color-border);
   border-radius: 4px;
 }
