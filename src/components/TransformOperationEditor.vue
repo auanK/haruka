@@ -45,6 +45,14 @@ const notation = computed(() => {
 })
 const drafts = reactive<Partial<Record<string, string>>>({})
 const activeRotationCell = ref<number>()
+const formatRotationText = (expression: string, degrees: number): string =>
+  `${expression}(${formatMatrixValue(degrees, props.precision)}°)`
+const hasPivotColumn = computed(
+  () =>
+    (props.operation.joint?.pivotEnabled !== false &&
+      Boolean(props.operation.joint?.pivot.some((n) => Math.abs(n) > 1e-9))) ||
+    [3, 7, 11].some((i) => Math.abs(matrix.value[i]!) > 1e-9),
+)
 
 const updateNumber = (field: TransformNumberField | 'angle', event: Event): void => {
   const text = (event.target as HTMLInputElement).value
@@ -140,7 +148,15 @@ const selectPlane = (plane: ReflectionPlane) => {
       :precision="precision"
       caption=""
       class="operation-matrix"
-      :class="{ 'rotation-matrix': transform.type === 'rotation' }"
+      :class="
+        transform.type === 'rotation'
+          ? [
+              'rotation-matrix',
+              `rotation-axis-${transform.axis}`,
+              { 'has-pivot-column': hasPivotColumn },
+            ]
+          : undefined
+      "
     >
       <template #cell="{ index }">
         <input
@@ -183,14 +199,13 @@ const selectPlane = (plane: ReflectionPlane) => {
             @click="beginAngleEdit(index)"
             @keydown.enter.prevent="beginAngleEdit(index)"
           >
-            <span>{{ cells[index]!.expression }}</span
-            ><span
-              class="rotation-argument"
+            <span
+              class="rotation-label"
               :style="{
-                '--angle-chars':
-                  (formatMatrixValue(cells[index]!.degrees, precision).length + 3) * 0.61,
+                '--expr-chars':
+                  formatRotationText(cells[index]!.expression, cells[index]!.degrees).length * 0.61,
               }"
-              >({{ formatMatrixValue(cells[index]!.degrees, precision) }}°)</span
+              >{{ formatRotationText(cells[index]!.expression, cells[index]!.degrees) }}</span
             >
           </button>
         </template>
@@ -279,8 +294,31 @@ const selectPlane = (plane: ReflectionPlane) => {
   padding: 2.5px 1.5px;
   text-align: center;
 }
-.operation-matrix.rotation-matrix :deep(td) {
-  height: 31px;
+.rotation-matrix {
+  --rot-trig: 39%;
+  --rot-axis: 11%;
+  --rot-offset: 11%;
+}
+.rotation-matrix.has-pivot-column {
+  --rot-trig: 34%;
+  --rot-axis: 10%;
+  --rot-offset: 22%;
+}
+.rotation-matrix :deep(td[data-column='3']) {
+  width: var(--rot-offset);
+}
+.rotation-axis-x :deep(td[data-column='0']),
+.rotation-axis-y :deep(td[data-column='1']),
+.rotation-axis-z :deep(td[data-column='2']) {
+  width: var(--rot-axis);
+}
+.rotation-axis-x :deep(td[data-column='1']),
+.rotation-axis-x :deep(td[data-column='2']),
+.rotation-axis-y :deep(td[data-column='0']),
+.rotation-axis-y :deep(td[data-column='2']),
+.rotation-axis-z :deep(td[data-column='0']),
+.rotation-axis-z :deep(td[data-column='1']) {
+  width: var(--rot-trig);
 }
 .cell-control,
 .angle-editor {
@@ -356,21 +394,15 @@ input::-webkit-outer-spin-button {
 }
 .rotation-cell {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  height: 26px;
-  min-height: 26px;
   container-type: inline-size;
-  white-space: normal;
-  line-height: 11px;
-  padding: 1px;
+  overflow: hidden;
+  padding: 0 1px;
 }
-.rotation-argument {
+.rotation-label {
   display: block;
-  font-size: min(1em, calc((100cqw - 2px) / var(--angle-chars)));
-  line-height: 11px;
+  font-size: min(1em, calc((100cqw - 2px) / var(--expr-chars)));
+  line-height: 18px;
+  white-space: nowrap;
 }
 .angle-editor input {
   flex: 0 1 auto;
